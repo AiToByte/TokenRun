@@ -12,7 +12,9 @@
       "Bash(python -m pytest tests/test_arbitrage.py -v --tb=short)",
       "Bash(python -m pytest tests/test_skill_chain_export.py -v --tb=short)",
       "Bash(python -m pytest tests/test_mcp_multimodal.py -v --tb=short)",
-      "Bash(python -m pytest tests/ --tb=line -q)"
+      "Bash(python -m pytest tests/ --tb=line -q)",
+      "Bash(git commit -m 'feat: complete TokenRun evolution — from MVP to AI productivity hub *)",
+      "Bash(git commit *)"
     ]
   }
 }
