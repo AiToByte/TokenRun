@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { fetchSkills } from "@/lib/api";
+import { fetchSkills, runSkill } from "@/lib/api";
 
 interface Skill {
   skill_id: string;
@@ -11,10 +11,24 @@ interface Skill {
 
 export default function SkillsPage() {
   const [skills, setSkills] = useState<Skill[]>([]);
+  const [running, setRunning] = useState<string | null>(null);
 
   useEffect(() => {
     fetchSkills().then(setSkills).catch(console.error);
   }, []);
+
+  const handleRunAgain = async (skillId: string) => {
+    setRunning(skillId);
+    try {
+      const result = await runSkill(skillId);
+      // Navigate to missions to see the result
+      window.location.href = `/missions?highlight=${result.mission_id}`;
+    } catch (e) {
+      console.error("Failed to run skill:", e);
+      alert(`Failed to run skill: ${e}`);
+    }
+    setRunning(null);
+  };
 
   return (
     <div className="space-y-6">
@@ -22,6 +36,7 @@ export default function SkillsPage() {
       <p className="text-sm text-gray-500">
         Skills are reusable task blueprints extracted from successful mission
         runs. They lock the optimal prompt, model config, and validation rules.
+        Click &quot;Run Again&quot; to re-execute with locked parameters.
       </p>
 
       <div className="grid grid-cols-2 gap-4">
@@ -51,11 +66,15 @@ export default function SkillsPage() {
                 Created: {s.created_at}
               </div>
               <div className="mt-4 flex gap-2">
-                <button className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">
-                  View Details
+                <button
+                  onClick={() => handleRunAgain(s.skill_id)}
+                  disabled={running === s.skill_id}
+                  className="px-3 py-1 text-xs bg-[var(--color-accent)] text-white rounded hover:opacity-90 disabled:opacity-50"
+                >
+                  {running === s.skill_id ? "Starting..." : "Run Again"}
                 </button>
                 <button className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">
-                  Run Again
+                  View Details
                 </button>
               </div>
             </div>

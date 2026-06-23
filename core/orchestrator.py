@@ -9,14 +9,19 @@ enforcing the sampling gate and budget constraints at every step.
 from __future__ import annotations
 
 import asyncio
+import json
 from collections import deque
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from core.cost_scheduler import CostScheduler
 from core.drift_detector import DriftAlert, DriftDetector
 from core.ledger import BudgetExceededError, TokenLedger
 from core.models import Runfile, TaskNode, TaskTrace
 from core.prompt_lineage import PromptLineageManager
 from core.runner import ActorCriticLoop
+from core.self_healer import SelfHealer
+from core.task_queue import Priority
 
 __all__ = ["TROrchestrator"]
 
@@ -36,6 +41,8 @@ class TROrchestrator:
         Maximum number of concurrent API calls.
     drift_detector:
         Optional drift detector for periodic consistency checks.
+    self_healer:
+        Optional self-healer for automatic prompt optimization.
     """
 
     def __init__(
@@ -45,6 +52,7 @@ class TROrchestrator:
         ledger: TokenLedger,
         concurrency: int = 5,
         drift_detector: Optional[DriftDetector] = None,
+        self_healer: Optional[SelfHealer] = None,
     ) -> None:
         self.runfile = runfile
         self.engine = loop_engine
@@ -53,6 +61,7 @@ class TROrchestrator:
         self.results: List[TaskTrace] = []
         self.lineage = PromptLineageManager()
         self.drift_detector = drift_detector
+        self.self_healer = self_healer
         self._total_iterations = 0  # for max_loop_count enforcement
 
         # --- Pause/Resume state ---
@@ -133,9 +142,20 @@ class TROrchestrator:
         return await self._process_batch(samples)
 
     async def run_mass_production(
-        self, data_stream: List[str]
+        self,
+        data_stream: List[str],
+        priority: Priority = Priority.NORMAL,
     ) -> List[Dict[str, Any]]:
-        """Execute the full production phase across all workflow nodes."""
+        """Execute the full production phase across all workflow nodes.
+
+        Parameters
+        ----------
+        data_stream:
+            Input data items to process.
+        priority:
+            Task priority. LOW priority tasks may be routed to Batch API
+            for cost savings when a CostScheduler is configured.
+        """
         if self.ledger.is_fused:
             print("❌ 账本已熔断，无法开启全量生产。")
             return []
@@ -150,6 +170,10 @@ class TROrchestrator:
                 print("🚨 [指纹校验] 检测到逻辑变动！请重新采样以确认质量。")
                 return []
             print("✅ [指纹校验] 配置一致性确认。")
+
+        # --- Priority-based routing ---
+        if priority == Priority.LOW:
+            print(f"⏳ [低优先级] 任务将使用成本优化模式执行...")
 
         self.results = []
         print(f"\U0001f3ed [生产阶段] 开始全量处理 {len(data_stream)} 条数据...")
@@ -236,6 +260,46 @@ class TROrchestrator:
         return order
 
     # ------------------------------------------------------------------
+    # Skill resolution
+    # ------------------------------------------------------------------
+
+    def resolve_skill_ref(self, node: TaskNode) -> TaskNode:
+        """If the node has a skill_ref, load the .trs and merge its config.
+
+        Returns the node with ``actor_prompt_template`` and ``loop_config``
+        populated from the skill file.
+        """
+        if not node.skill_ref:
+            return node
+
+        skill_path = Path(node.skill_ref)
+        if not skill_path.exists():
+            # Try vault/ and skills/library/
+            for prefix in [Path("vault"), Path("skills/library")]:
+                candidate = prefix / f"{node.skill_ref}.trs"
+                if candidate.exists():
+                    skill_path = candidate
+                    break
+            else:
+                raise FileNotFoundError(
+                    f"技能文件不存在: {node.skill_ref}"
+                )
+
+        skill_data = json.loads(skill_path.read_text(encoding="utf-8"))
+
+        # Merge skill config into node
+        if skill_data.get("optimized_prompt"):
+            node.actor_prompt_template = skill_data["optimized_prompt"]
+
+        if skill_data.get("validation_rules"):
+            from core.models import ValidationRule
+            node.loop_config.exit_criteria = [
+                ValidationRule(**r) for r in skill_data["validation_rules"]
+            ]
+
+        return node
+
+    # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
 
@@ -288,8 +352,14 @@ class TROrchestrator:
                                   f" (匹配率: {report['match_rate']:.1%})")
                     except DriftAlert as alert:
                         print(f"  {alert}")
-                        # Drift detected — mark result but don't crash
                         result["drift_alert"] = str(alert)
+
+                # --- Self-healer: record critiques for pattern analysis ---
+                if self.self_healer and result.get("history"):
+                    for h in result["history"]:
+                        critique = h.get("critique")
+                        if critique:
+                            self.self_healer.record_critique(critique)
 
                 return result
             except BudgetExceededError:

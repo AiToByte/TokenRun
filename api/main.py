@@ -45,6 +45,7 @@ _ws_clients: List[WebSocket] = []
 class MissionCreate(BaseModel):
     runfile_path: str = "runfiles/test_mission.yaml"
     sample_only: bool = False
+    priority: str = "normal"  # "high" | "normal" | "low"
 
 
 class MissionStatus(BaseModel):
@@ -234,6 +235,148 @@ async def list_skills() -> List[SkillInfo]:
     return skills
 
 
+@app.post("/skills/{skill_id}/run")
+async def run_skill(skill_id: str) -> MissionStatus:
+    """Run a solidified skill — load locked params and start a new mission."""
+    from core.app import TokenRunApp
+    from core.models import Runfile
+    from dotenv import load_dotenv
+    load_dotenv()
+
+    # Find the skill file
+    vault = Path("vault")
+    skill_file = vault / f"{skill_id}.trs"
+    if not skill_file.exists():
+        # Also check skills/library
+        skill_file = Path("skills/library") / f"{skill_id}.trs"
+    if not skill_file.exists():
+        raise HTTPException(404, f"Skill not found: {skill_id}")
+
+    skill_data = json.loads(skill_file.read_text(encoding="utf-8"))
+
+    # Build Runfile from skill
+    from core.models import LoopConfig, TaskNode, ValidationRule
+    exit_criteria = []
+    for rule_data in skill_data.get("validation_rules", []):
+        exit_criteria.append(ValidationRule(**rule_data))
+
+    node = TaskNode(
+        id=skill_id,
+        name=skill_data.get("name", skill_id),
+        actor_prompt_template=skill_data.get("optimized_prompt", ""),
+        loop_config=LoopConfig(max_attempts=3, exit_criteria=exit_criteria),
+    )
+    runfile = Runfile(name=f"Skill: {skill_data.get('name', skill_id)}", workflow=[node])
+
+    # Create mission
+    mission_id = f"skill-{uuid.uuid4().hex[:8]}"
+    _active_missions[mission_id] = {
+        "status": "pending",
+        "phase": "INIT",
+        "progress": 0.0,
+        "cost_usd": 0.0,
+        "success_count": 0,
+        "total_count": 0,
+        "skill_id": skill_id,
+    }
+
+    # Start in background
+    asyncio.create_task(_run_skill_bg(mission_id, runfile))
+
+    return MissionStatus(
+        mission_id=mission_id,
+        status="pending",
+        phase="INIT",
+        progress=0.0,
+        cost_usd=0.0,
+        success_count=0,
+        total_count=0,
+    )
+
+
+async def _run_skill_bg(mission_id: str, runfile: Runfile) -> None:
+    """Run a skill-based mission in the background."""
+    m = _active_missions.get(mission_id)
+    if not m:
+        return
+
+    try:
+        m["status"] = "running"
+        m["phase"] = "RUNNING"
+        await _broadcast({"type": "STATUS_UPDATE", "mission_id": mission_id, "phase": "RUNNING"})
+
+        from core.app import TokenRunApp
+        from main import build_providers
+
+        actor_provider, critic_provider = build_providers(runfile)
+        try:
+            app = TokenRunApp(runfile, actor_provider, critic_provider)
+            result = await app.run_mission(auto_approve=True)
+
+            m["status"] = "completed"
+            m["phase"] = "DONE"
+            m["progress"] = 1.0
+            m["result"] = result
+            m["cost_usd"] = result.get("ledger_summary", {}).get("total_cost", "$0.0000")
+            m["success_count"] = result.get("success_count", 0)
+            m["total_count"] = result.get("total_count", 0)
+            await _broadcast({"type": "STATUS_UPDATE", "mission_id": mission_id, "phase": "COMPLETED"})
+        finally:
+            await actor_provider.close()
+            await critic_provider.close()
+
+    except Exception as exc:
+        m["status"] = "failed"
+        m["phase"] = "ERROR"
+        await _broadcast({"type": "ERROR", "mission_id": mission_id, "error": str(exc)})
+
+
+@app.get("/missions/{mission_id}/lineage")
+async def get_lineage(mission_id: str) -> List[Dict[str, Any]]:
+    """Get the prompt version lineage for a mission."""
+    m = _active_missions.get(mission_id)
+    if not m:
+        raise HTTPException(404, "Mission not found")
+    # Return stored lineage info if available
+    return m.get("lineage", [])
+
+
+@app.post("/missions/{mission_id}/export")
+async def export_fine_tune(
+    mission_id: str,
+    format: str = "openai",
+    min_score: float = 0.8,
+) -> Dict[str, str]:
+    """Export mission traces as a fine-tuning dataset."""
+    m = _active_missions.get(mission_id)
+    if not m:
+        raise HTTPException(404, "Mission not found")
+
+    result = m.get("result", {})
+    traces = []
+    if result:
+        # Build traces from the mission results
+        for r in result.get("results", []):
+            traces.append({
+                "status": r.get("status"),
+                "history": r.get("history", []),
+                "final_output": r.get("final_output", ""),
+            })
+
+    if not traces:
+        raise HTTPException(400, "No traces available for export")
+
+    from core.solidifier import SkillSolidifier
+    solidifier = SkillSolidifier()
+    try:
+        file_path = solidifier.export_fine_tune(
+            traces, format=format, min_score=min_score
+        )
+        return {"file_path": file_path, "format": format, "count": len(traces)}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 # ---------------------------------------------------------------------------
 # WebSocket
 # ---------------------------------------------------------------------------
@@ -307,11 +450,7 @@ async def mission_events(mission_id: str) -> StreamingResponse:
 # ---------------------------------------------------------------------------
 
 async def _run_mission_bg(mission_id: str, req: MissionCreate) -> None:
-    """Run a mission in the background.
-
-    TODO: Integrate with actual mission runner (requires async task queue
-    like Celery or Temporal).  Currently a stub that marks as completed.
-    """
+    """Run a mission in the background using TokenRunApp."""
     m = _active_missions.get(mission_id)
     if not m:
         return
@@ -319,15 +458,44 @@ async def _run_mission_bg(mission_id: str, req: MissionCreate) -> None:
     try:
         m["status"] = "running"
         m["phase"] = "SAMPLING"
+        m["progress"] = 0.0
         await _broadcast({"type": "STATUS_UPDATE", "mission_id": mission_id, "phase": "SAMPLING"})
 
-        # TODO: Replace with actual mission execution
-        # from main import run_mission
-        # await run_mission(req.runfile_path, req.sample_only)
-        m["status"] = "completed"
-        m["phase"] = "DONE"
-        m["progress"] = 1.0
-        await _broadcast({"type": "STATUS_UPDATE", "mission_id": mission_id, "phase": "COMPLETED"})
+        # Build real components
+        from core.app import TokenRunApp
+        from core.models import Runfile
+        import yaml
+        from dotenv import load_dotenv
+
+        load_dotenv()
+
+        with open(req.runfile_path, "r", encoding="utf-8") as f:
+            runfile = Runfile(**yaml.safe_load(f))
+
+        from main import build_providers
+        actor_provider, critic_provider = build_providers(runfile)
+
+        try:
+            app = TokenRunApp(runfile, actor_provider, critic_provider)
+
+            m["phase"] = "SAMPLING"
+            m["progress"] = 0.1
+            await _broadcast({"type": "STATUS_UPDATE", "mission_id": mission_id, "phase": "SAMPLING", "progress": 0.1})
+
+            result = await app.run_mission(sample_only=req.sample_only, auto_approve=True)
+
+            m["status"] = "completed"
+            m["phase"] = "DONE"
+            m["progress"] = 1.0
+            m["result"] = result
+            m["cost_usd"] = result.get("ledger_summary", {}).get("total_cost", "$0.0000")
+            m["success_count"] = result.get("success_count", 0)
+            m["total_count"] = result.get("total_count", 0)
+            await _broadcast({"type": "STATUS_UPDATE", "mission_id": mission_id, "phase": "COMPLETED", "progress": 1.0})
+
+        finally:
+            await actor_provider.close()
+            await critic_provider.close()
 
     except Exception as exc:
         m["status"] = "failed"

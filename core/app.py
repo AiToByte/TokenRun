@@ -228,6 +228,48 @@ class TokenRunApp:
         }
 
     # ------------------------------------------------------------------
+    # Skill reuse
+    # ------------------------------------------------------------------
+
+    def run_from_skill(self, skill_id: str, data: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Load a solidified skill and prepare a mission from its locked parameters.
+
+        Returns a summary dict with the skill configuration ready for execution.
+        Does NOT execute — call ``run_mission()`` on the returned app, or use
+        the returned config to create a new app.
+        """
+        skill = self.solidifier.load_skill(skill_id)
+
+        # Build a Runfile from the skill's locked parameters
+        from core.models import LoopConfig, TaskNode, ValidationRule
+
+        exit_criteria = []
+        for rule_data in skill.get("validation_rules", []):
+            exit_criteria.append(ValidationRule(**rule_data))
+
+        node = TaskNode(
+            id=skill_id,
+            name=skill.get("name", skill_id),
+            actor_prompt_template=skill.get("optimized_prompt", ""),
+            loop_config=LoopConfig(
+                max_attempts=3,
+                exit_criteria=exit_criteria,
+            ),
+        )
+
+        runfile = Runfile(
+            name=f"Skill Run: {skill.get('name', skill_id)}",
+            workflow=[node],
+        )
+
+        return {
+            "skill_id": skill_id,
+            "skill": skill,
+            "runfile": runfile,
+            "data": data or self._demo_data(),
+        }
+
+    # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 

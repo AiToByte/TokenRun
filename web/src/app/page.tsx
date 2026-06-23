@@ -28,16 +28,62 @@ export default function Dashboard() {
     fetchSkills().then(setSkills).catch(console.error);
   }, []);
 
+  // Aggregate value metrics
+  const totalCost = missions.reduce((s, m) => s + m.cost_usd, 0);
+  const totalSuccess = missions.reduce((s, m) => s + m.success_count, 0);
+  const totalItems = missions.reduce((s, m) => s + m.total_count, 0);
+  const avgSuccessRate = totalItems > 0 ? (totalSuccess / totalItems) * 100 : 0;
+
   return (
     <div className="space-y-8">
       <h2 className="text-2xl font-bold">Dashboard</h2>
+
+      {/* Live Value Dashboard */}
+      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-6">
+        <h3 className="text-lg font-semibold text-blue-900 mb-4">
+          Live Value Dashboard
+        </h3>
+        <p className="text-sm text-blue-700 mb-4">
+          Not just cost — the value created by your AI missions.
+        </p>
+        <div className="grid grid-cols-4 gap-4">
+          <ValueCard
+            label="Items Processed"
+            value={totalItems.toString()}
+            icon="📊"
+            color="blue"
+          />
+          <ValueCard
+            label="Success Rate"
+            value={`${avgSuccessRate.toFixed(1)}%`}
+            icon="✅"
+            color="green"
+          />
+          <ValueCard
+            label="Total Cost"
+            value={`$${totalCost.toFixed(4)}`}
+            icon="💰"
+            color="amber"
+          />
+          <ValueCard
+            label="Cost per Success"
+            value={
+              totalSuccess > 0
+                ? `$${(totalCost / totalSuccess).toFixed(6)}`
+                : "—"
+            }
+            icon="📈"
+            color="purple"
+          />
+        </div>
+      </div>
 
       {/* Stats cards */}
       <div className="grid grid-cols-4 gap-4">
         <StatCard label="Active Missions" value={missions.length.toString()} />
         <StatCard
           label="Total Cost"
-          value={`$${missions.reduce((s, m) => s + m.cost_usd, 0).toFixed(2)}`}
+          value={`$${totalCost.toFixed(2)}`}
         />
         <StatCard label="Skills Saved" value={skills.length.toString()} />
         <StatCard label="API Status" value="Healthy" variant="success" />
@@ -108,6 +154,34 @@ export default function Dashboard() {
           )}
         </div>
       </section>
+    </div>
+  );
+}
+
+function ValueCard({
+  label,
+  value,
+  icon,
+  color,
+}: {
+  label: string;
+  value: string;
+  icon: string;
+  color: "blue" | "green" | "amber" | "purple";
+}) {
+  const colors = {
+    blue: "bg-blue-100 text-blue-900 border-blue-200",
+    green: "bg-green-100 text-green-900 border-green-200",
+    amber: "bg-amber-100 text-amber-900 border-amber-200",
+    purple: "bg-purple-100 text-purple-900 border-purple-200",
+  };
+  return (
+    <div className={`border rounded-lg p-4 ${colors[color]}`}>
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-lg">{icon}</span>
+        <span className="text-xs font-medium">{label}</span>
+      </div>
+      <div className="text-2xl font-bold">{value}</div>
     </div>
   );
 }

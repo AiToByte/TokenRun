@@ -6,7 +6,13 @@
       "Bash(python -c ' *)",
       "Bash(python -c 'try: *)",
       "Bash(python -m pytest tests/ -v --tb=short)",
-      "Bash(python -m pytest tests/test_api.py tests/test_batch.py -v --tb=short)"
+      "Bash(python -m pytest tests/test_api.py tests/test_batch.py -v --tb=short)",
+      "Bash(python -m pytest tests/test_api.py tests/test_app.py tests/test_e2e.py -v --tb=short)",
+      "Bash(python -m pytest tests/test_routing_healing.py -v --tb=short)",
+      "Bash(python -m pytest tests/test_arbitrage.py -v --tb=short)",
+      "Bash(python -m pytest tests/test_skill_chain_export.py -v --tb=short)",
+      "Bash(python -m pytest tests/test_mcp_multimodal.py -v --tb=short)",
+      "Bash(python -m pytest tests/ --tb=line -q)"
     ]
   }
 }

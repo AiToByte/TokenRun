@@ -147,3 +147,90 @@ class SkillSolidifier:
             "success_rate": round(successful / total, 4),
             "average_retries": round(total_iterations / total, 2),
         }
+
+    # ------------------------------------------------------------------
+    # Knowledge Distillation Export
+    # ------------------------------------------------------------------
+
+    def export_fine_tune(
+        self,
+        traces: List[Dict[str, Any]],
+        format: str = "openai",
+        output_path: Optional[str] = None,
+        min_score: float = 0.8,
+    ) -> str:
+        """Export successful traces as a fine-tuning dataset.
+
+        Converts [Input] → [Final_Output] pairs into standard JSONL
+        format suitable for fine-tuning language models.
+
+        Parameters
+        ----------
+        traces:
+            Raw trace dicts from a completed mission.
+        format:
+            Output format: ``"openai"`` (OpenAI JSONL), ``"alpaca"``,
+            or ``"sharegpt"``.
+        output_path:
+            Where to write the JSONL file.  If None, uses vault/.
+        min_score:
+            Minimum score to include a trace (filters low-quality outputs).
+
+        Returns
+        -------
+        str
+            Path to the generated JSONL file.
+        """
+        successful = [
+            t for t in traces
+            if t.get("status") == "success"
+            and t.get("history")
+            and t["history"][-1].get("score", 0) >= min_score
+        ]
+
+        if not successful:
+            raise ValueError(f"没有通过评分阈值 ({min_score}) 的成功记录可导出")
+
+        lines = []
+        for t in successful:
+            history = t.get("history", [])
+            if not history:
+                continue
+
+            # Extract input and output
+            input_text = history[0].get("output", "")  # best proxy for input
+            output_text = t.get("final_output", "")
+
+            if format == "openai":
+                lines.append(json.dumps({
+                    "messages": [
+                        {"role": "user", "content": input_text},
+                        {"role": "assistant", "content": output_text},
+                    ]
+                }, ensure_ascii=False))
+
+            elif format == "alpaca":
+                lines.append(json.dumps({
+                    "instruction": input_text,
+                    "input": "",
+                    "output": output_text,
+                }, ensure_ascii=False))
+
+            elif format == "sharegpt":
+                lines.append(json.dumps({
+                    "conversations": [
+                        {"from": "human", "value": input_text},
+                        {"from": "gpt", "value": output_text},
+                    ]
+                }, ensure_ascii=False))
+
+            else:
+                raise ValueError(f"不支持的导出格式: {format}")
+
+        # Write to file
+        out_dir = Path(output_path) if output_path else self.vault_path
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_file = out_dir / f"finetune_{format}_{int(time.time())}.jsonl"
+        out_file.write_text("\n".join(lines), encoding="utf-8")
+
+        return str(out_file)

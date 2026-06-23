@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 __all__ = [
     "DeterminismLevel", "LoopStrategy", "ResourceType", "TaskStatus",
     "Resource", "SecurityConfig", "SamplingConfig", "Fingerprint",
-    "ValidationRule", "LoopConfig", "PromptVersion", "TaskNode",
+    "ValidationRule", "LoopConfig", "ModelTier", "PromptVersion", "TaskNode",
     "GovernanceConfig", "Runfile",
     "EvaluationResult", "ExecutionIteration", "TaskTrace",
 ]
@@ -123,6 +123,17 @@ class LoopConfig(BaseModel):
     min_score: float = 0.85  # weighted score threshold to pass
 
 
+class ModelTier(BaseModel):
+    """A tier in the dynamic model routing ladder.
+
+    When the Actor fails to pass after ``escalate_after`` retries,
+    the system automatically upgrades to the next tier's model.
+    """
+    model: str  # model name (e.g. "gpt-4o-mini")
+    escalate_after: int = 2  # switch to next tier after N failed retries
+    base_url: Optional[str] = None  # override API endpoint
+
+
 # ---------------------------------------------------------------------------
 # Workflow
 # ---------------------------------------------------------------------------
@@ -139,15 +150,21 @@ class PromptVersion(BaseModel):
 
 
 class TaskNode(BaseModel):
-    """A single step in the Runfile workflow DAG."""
+    """A single step in the Runfile workflow DAG.
+
+    If ``skill_ref`` is set, this node delegates to a solidified .trs
+    skill file instead of using ``actor_prompt_template`` directly.
+    """
     id: str
     name: str
     depends_on: List[str] = Field(default_factory=list)
-    actor_prompt_template: str
+    actor_prompt_template: str = ""
+    skill_ref: Optional[str] = None  # path to .trs file or skill_id
     loop_config: LoopConfig = Field(default_factory=LoopConfig)
     config: Dict[str, Any] = Field(default_factory=dict)
     prompt_registry: List[PromptVersion] = Field(default_factory=list)
     current_version_id: Optional[str] = None
+    model_tiers: List[ModelTier] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

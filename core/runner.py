@@ -67,12 +67,15 @@ class ActorCriticLoop:
         ledger: Optional[TokenLedger] = None,
         persistence: Optional[TaskPersistence] = None,
         redactor: Optional[PrivacyRedactor] = None,
+        model_providers: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.actor = actor
         self.critic = critic
         self.ledger = ledger
         self.persistence = persistence
         self.redactor = redactor
+        # model_providers: {"gpt-4o-mini": LLMProvider, "gpt-4o": LLMProvider, ...}
+        self._model_providers = model_providers or {}
 
     async def run(self, node: TaskNode, input_data: str) -> Dict[str, Any]:
         """Run the Actor-Critic loop for *input_data* on *node*.
@@ -120,12 +123,22 @@ class ActorCriticLoop:
             attempts += 1
             start = time.time()
 
+            # --- Dynamic model routing: escalate to higher tier if needed ---
+            current_provider = self._resolve_tier_provider(node, attempts)
+            if current_provider:
+                original_provider = self.actor.provider
+                self.actor.provider = current_provider
+
             # --- Actor phase (uses masked data) ---
             actor_resp = await self.actor.generate(
                 template_str=node.actor_prompt_template,
                 data=safe_input,
                 feedback=feedback,
             )
+
+            # Restore original provider
+            if current_provider:
+                self.actor.provider = original_provider
 
             # Record actor token consumption
             if self.ledger:
@@ -286,6 +299,32 @@ class ActorCriticLoop:
             "history": iterations,
             "trace": trace,
         }
+
+    # ------------------------------------------------------------------
+    # Dynamic model routing
+    # ------------------------------------------------------------------
+
+    def _resolve_tier_provider(self, node: TaskNode, attempt: int) -> Optional[Any]:
+        """Determine which model provider to use based on tier escalation.
+
+        Returns the provider to use, or None if no escalation is needed.
+        """
+        tiers = node.model_tiers
+        if not tiers or not self._model_providers:
+            return None
+
+        # Find the appropriate tier based on cumulative failed attempts
+        cumulative_escalations = 0
+        for tier in tiers:
+            cumulative_escalations += tier.escalate_after
+            if attempt <= cumulative_escalations:
+                provider = self._model_providers.get(tier.model)
+                if provider:
+                    return provider
+
+        # Use the last tier if all escalation thresholds exceeded
+        last_tier = tiers[-1]
+        return self._model_providers.get(last_tier.model)
 
     # ------------------------------------------------------------------
     # Programmatic validation

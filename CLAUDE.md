@@ -99,3 +99,18 @@ docker-compose up                       # backend:8000 + frontend:3000
 - **Pattern**: `unittest.mock.AsyncMock` for LLM calls, `MagicMock(spec=...)` for type safety
 - **Coverage**: 137 tests across 9 test files covering core engine, privacy, ledger, runner, API, batch provider, edge cases, and new features
 - **Run single test**: `python -m pytest tests/test_runner.py::TestActorCriticLoop::test_first_attempt_passes -v`
+
+## Design Documents
+
+All design documents are in `docs/`:
+
+| File | Content |
+|------|---------|
+| `docs/TokenRun落地方案-总览.md` | Master roadmap: tech stack, phases, directory structure, risk mitigation |
+| `docs/第一阶段-核心协议与元数据定义.md` | Pydantic models for Runfile, Trace, EvaluationResult |
+| `docs/第二阶段-Runner核心引擎与状态机控制.md` | TRRunner state machine, loop engineering, feedback injection |
+| `docs/第三阶段-资源网关、隐私脱敏、增强型审计器.md` | Gateway, PrivacyRedactor, LLMCritic, TokenLedger |
+| `docs/第四阶段-指挥塔-通讯协议与可视化交互设计.md` | WebSocket/SSE protocol, Cockpit UI layout, human-in-the-loop |
+| `docs/第五阶段-版本控制谱系与技能固化机制.md` | Prompt versioning, SkillVault, .trs format |
+| `docs/工程建设-step1.md` through `step6.md` | Incremental implementation guides with code snippets |
+| `docs/全系统集成方案与最小可行性案例.md` | Full integration pseudocode and MVP scenario (personal finance audit) |

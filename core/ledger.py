@@ -36,6 +36,19 @@ class UsageReport:
     call_count: int = 0
 
 
+@dataclass
+class ValueMetrics:
+    """Tracks the value created by a mission (not just the cost)."""
+    items_processed: int = 0
+    items_succeeded: int = 0
+    items_failed: int = 0
+    words_processed: int = 0
+    total_iterations: int = 0
+    avg_score: float = 0.0
+    score_sum: float = 0.0
+    score_count: int = 0
+
+
 # Default pricing per 1 000 tokens (USD).  Override via *pricing_map*.
 _DEFAULT_PRICING: Dict[str, Dict[str, float]] = {
     "gpt-4o": {"prompt": 0.0025, "completion": 0.01},
@@ -68,6 +81,7 @@ class TokenLedger:
         self.budget_usd = budget_usd
         self._pricing = pricing_map or _DEFAULT_PRICING
         self.report = UsageReport()
+        self.value = ValueMetrics()
         self._fused = False
 
     # ------------------------------------------------------------------
@@ -199,3 +213,43 @@ class TokenLedger:
 
         lines.append(f"{'='*50}")
         return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Value tracking
+    # ------------------------------------------------------------------
+
+    def record_value(
+        self,
+        succeeded: bool = True,
+        words: int = 0,
+        iterations: int = 1,
+        score: float = 0.0,
+    ) -> None:
+        """Record value created by processing one item."""
+        self.value.items_processed += 1
+        if succeeded:
+            self.value.items_succeeded += 1
+        else:
+            self.value.items_failed += 1
+        self.value.words_processed += words
+        self.value.total_iterations += iterations
+        if score > 0:
+            self.value.score_sum += score
+            self.value.score_count += 1
+            self.value.avg_score = self.value.score_sum / self.value.score_count
+
+    def get_value_report(self) -> Dict[str, Any]:
+        """Return a snapshot of value created."""
+        return {
+            "items_processed": self.value.items_processed,
+            "items_succeeded": self.value.items_succeeded,
+            "items_failed": self.value.items_failed,
+            "words_processed": self.value.words_processed,
+            "total_iterations": self.value.total_iterations,
+            "avg_score": round(self.value.avg_score, 4),
+            "cost_per_item": (
+                round(self.report.total_cost_usd / self.value.items_succeeded, 6)
+                if self.value.items_succeeded > 0
+                else 0.0
+            ),
+        }

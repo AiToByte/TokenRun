@@ -172,6 +172,82 @@ class LLMProvider:
             f"LLM 请求失败 (已重试{self.max_retries}次): {last_exc}"
         ) from last_exc
 
+    async def embed(
+        self,
+        text: str,
+        model: str = "text-embedding-3-small",
+    ) -> List[float]:
+        """Generate an embedding vector for the given text.
+
+        Parameters
+        ----------
+        text:
+            Text to embed.
+        model:
+            Embedding model name.
+
+        Returns
+        -------
+        list[float]
+            The embedding vector.
+        """
+        payload = {
+            "model": model,
+            "input": text,
+        }
+
+        last_exc: Optional[Exception] = None
+        for attempt in range(self.max_retries):
+            try:
+                resp = await self._client.post(
+                    f"{self.base_url}/embeddings",
+                    headers={"Authorization": f"Bearer {self._api_key}"},
+                    json=payload,
+                )
+
+                if resp.status_code in _RETRYABLE_STATUS:
+                    if attempt < self.max_retries - 1:
+                        await asyncio.sleep(2.0 ** attempt)
+                        continue
+                    resp.raise_for_status()
+
+                if resp.status_code >= 400:
+                    raise LLMProviderError(
+                        f"Embedding 请求被拒绝 (HTTP {resp.status_code}): "
+                        f"{resp.text}"
+                    )
+
+                data = resp.json()
+                return data["data"][0]["embedding"]
+
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code in _RETRYABLE_STATUS:
+                    last_exc = exc
+                    if attempt < self.max_retries - 1:
+                        await asyncio.sleep(2.0 ** attempt)
+                        continue
+                raise LLMProviderError(
+                    f"Embedding 请求被拒绝 (HTTP {exc.response.status_code}): "
+                    f"{exc.response.text}"
+                ) from exc
+
+            except (httpx.TimeoutException, httpx.ConnectError) as exc:
+                last_exc = exc
+                if attempt < self.max_retries - 1:
+                    await asyncio.sleep(2.0 ** attempt)
+                    continue
+
+            except LLMProviderError:
+                raise
+            except Exception as exc:
+                raise LLMProviderError(
+                    f"Embedding 请求遇到意外错误: {exc}"
+                ) from exc
+
+        raise LLMProviderError(
+            f"Embedding 请求失败 (已重试{self.max_retries}次): {last_exc}"
+        ) from last_exc
+
     async def close(self) -> None:
         """Close the underlying HTTP client."""
         await self._client.aclose()
