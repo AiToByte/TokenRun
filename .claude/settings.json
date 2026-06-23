@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install *)",
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(python -c ' *)",
+      "Bash(python -c 'try: *)",
+      "Bash(python -m pytest tests/ -v --tb=short)",
+      "Bash(python -m pytest tests/test_api.py tests/test_batch.py -v --tb=short)"
+    ]
+  }
+}

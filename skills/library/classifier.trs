@@ -1,0 +1,29 @@
+{
+  "skill_id": "TR-SKILL-CLASSIFIER",
+  "name": "Transaction Classifier",
+  "description": "Classifies financial transactions into categories with high accuracy. Designed for personal finance audit workflows.",
+  "created_at": "2024-01-01T00:00:00Z",
+  "optimized_prompt": "将以下交易记录分类为以下类别之一：餐饮、交通、购物、娱乐、医疗、教育、住房、通信、其他。\n\n交易记录：\n{{ data }}\n\n请输出JSON格式：{\"category\": \"类别\", \"confidence\": 0.0-1.0, \"reason\": \"判断依据\"}",
+  "model_config": {
+    "model": "gpt-4o-mini",
+    "temperature": 0.1
+  },
+  "validation_rules": [
+    {
+      "type": "json_schema",
+      "criteria": {"required": ["category", "confidence", "reason"]},
+      "weight": 1.0
+    },
+    {
+      "type": "llm_eval",
+      "criteria": "分类必须符合财务会计逻辑，若分类为'其他'则判定为不合格。",
+      "weight": 0.8
+    }
+  ],
+  "golden_samples": [],
+  "performance_stats": {
+    "total": 0,
+    "success_rate": 0.0,
+    "average_retries": 0.0
+  }
+}

@@ -1,0 +1,42 @@
+# runfiles/test_mission.yaml
+# 最小验证蓝图：总结并提取金句
+# 用于验证 Actor-Critic 循环的基本闭环能力
+
+version: "1.0"
+name: "Simple_Refinery_Test"
+metadata:
+  description: "深度总结并提取金句的最小验证任务"
+  author: "TokenRun"
+
+context: []
+
+security:
+  masking_rules: []
+  local_sandbox: true
+
+sampling:
+  enabled: true
+  mode: "percentage"
+  value: 0.01
+  auto_pause: false
+
+workflow:
+  - id: "summarizer"
+    name: "深度总结"
+    depends_on: []
+    actor_prompt_template: |
+      请为以下内容写一个精简的总结，并提取至少3个金句。
+      金句必须用【】括起来。
+
+      内容：
+      {{ data }}
+    loop_config:
+      strategy: "feedback-driven"
+      max_attempts: 3
+      exit_criteria:
+        - type: "llm_eval"
+          criteria: "总结必须超过50字，且必须包含至少3个用【】括起来的金句。"
+          weight: 1.0
+
+governance:
+  max_usd: 1.0

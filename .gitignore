@@ -1,0 +1,108 @@
+# TokenRun .gitignore
+
+# ==================== Python ====================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+eggs/
+*.whl
+.Python
+develop-eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+MANIFEST
+
+# ==================== Virtual Environment ====================
+.venv/
+venv/
+env/
+.env/
+.ENV/
+
+# ==================== Environment Variables ====================
+.env
+.env.local
+.env.production
+.env.staging
+
+# ==================== Logs & Runtime Data ====================
+logs/
+*.log
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite3-journal
+
+# ==================== Vault (Generated Skills) ====================
+vault/*.trs
+!vault/.gitkeep
+
+# ==================== IDE ====================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# ==================== Node.js / Next.js ====================
+web/node_modules/
+web/.next/
+web/out/
+web/.turbo/
+web/.cache/
+
+# ==================== Testing ====================
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+.tox/
+.nox/
+
+# ==================== Type Checking ====================
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+
+# ==================== Linting ====================
+.ruff_cache/
+
+# ==================== OS Files ====================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.tmp
+*.temp
+
+# ==================== Docker ====================
+.docker/
+docker-compose.override.yml
+
+# ==================== TokenRun Specific ====================
+# Trace database files
+*.traces.db
+tokenrun_traces.db
+
+# Sample output previews
+samples/
+previews/
+
+# Compiled Pydantic models
+*.pydantic.json

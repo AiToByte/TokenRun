@@ -1,0 +1,250 @@
+"""
+TokenRun Application — main controller class.
+
+Orchestrates all components into a unified mission execution pipeline.
+This is the "main control console" described in the integration design.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from core.actor import TaskActor
+from core.critic import TaskCritic
+from core.drift_detector import DriftDetector
+from core.ledger import TokenLedger
+from core.models import Runfile
+from core.orchestrator import TROrchestrator
+from core.persistence import TaskPersistence
+from core.prompt_lineage import PromptLineageManager
+from core.runner import ActorCriticLoop
+from core.sampling_manager import SamplingManager
+from core.solidifier import SkillSolidifier
+from core.telemetry import TelemetryManager
+from gateway.file_gateway import FileGateway
+from gateway.privacy import PrivacyRedactor
+from gateway.provider import LLMProvider
+
+__all__ = ["TokenRunApp"]
+
+
+class TokenRunApp:
+    """Main controller for TokenRun missions.
+
+    Wires together all components and manages the full lifecycle:
+    sampling → approval → production → solidification.
+
+    Parameters
+    ----------
+    runfile:
+        The parsed task blueprint.
+    actor_provider:
+        LLM provider for the expensive model.
+    critic_provider:
+        LLM provider for the cheap model.
+    """
+
+    def __init__(
+        self,
+        runfile: Runfile,
+        actor_provider: LLMProvider,
+        critic_provider: LLMProvider,
+    ) -> None:
+        self.runfile = runfile
+        self.actor_provider = actor_provider
+        self.critic_provider = critic_provider
+
+        # Core components
+        self.ledger = TokenLedger(budget_usd=runfile.governance.max_usd)
+        self.persistence = TaskPersistence(db_path="logs/tokenrun_traces.db")
+        self.redactor = PrivacyRedactor(rules=runfile.security.masking_rules)
+        self.telemetry = TelemetryManager()
+        self.lineage = PromptLineageManager()
+        self.solidifier = SkillSolidifier(vault_path="vault")
+        self.sampling_manager = SamplingManager()
+
+        # Engine
+        self.actor = TaskActor(actor_provider)
+        self.critic = TaskCritic(critic_provider)
+        self.engine = ActorCriticLoop(
+            actor=self.actor,
+            critic=self.critic,
+            ledger=self.ledger,
+            persistence=self.persistence,
+            redactor=self.redactor,
+        )
+
+        # Orchestrator
+        self.orchestrator = TROrchestrator(
+            runfile=runfile,
+            loop_engine=self.engine,
+            ledger=self.ledger,
+            concurrency=3,
+        )
+
+    # ------------------------------------------------------------------
+    # Resource sensing
+    # ------------------------------------------------------------------
+
+    def sense_resources(self) -> List[str]:
+        """Auto-detect and load data from Runfile resources.
+
+        Supports local:// protocol. Falls back to demo data if no
+        resources are configured.
+        """
+        if not self.runfile.context:
+            return self._demo_data()
+
+        for res in self.runfile.context:
+            if res.type.value == "local_file":
+                path_str = res.uri.replace("local://", "")
+                gw = FileGateway(path_str)
+                items = [f["content"] for f in gw.stream_files() if f.get("content")]
+                if items:
+                    self.telemetry.emit("RESOURCE_LOADED", "system", {
+                        "source": res.uri, "count": len(items),
+                    })
+                    return items
+                self.telemetry.emit("WARNING", "system", {
+                    "message": f"目录 {path_str} 中无可读取的文本文件",
+                })
+
+        return self._demo_data()
+
+    # ------------------------------------------------------------------
+    # Mission lifecycle
+    # ------------------------------------------------------------------
+
+    async def run_mission(
+        self,
+        sample_only: bool = False,
+        auto_approve: bool = False,
+    ) -> Dict[str, Any]:
+        """Execute a full mission lifecycle.
+
+        Returns a summary dict with results, traces, and skill info.
+        """
+        self.telemetry.emit_status("system", "INIT")
+
+        # Load data
+        data = self.sense_resources()
+
+        # Sampling phase
+        self.telemetry.emit_status("system", "SAMPLING")
+        sample_results = await self.orchestrator.run_sampling_gate(data)
+
+        # Fingerprint locking
+        if self.runfile.workflow:
+            sample_output = ""
+            for r in sample_results:
+                if r.get("status") == "success":
+                    sample_output = str(r.get("final_output", ""))
+                    break
+
+            node = self.runfile.workflow[0]
+            fp = ActorCriticLoop.compute_fingerprint(
+                model_id=self.actor_provider.model_name,
+                prompt_template=node.actor_prompt_template,
+                parameters={"temperature": 0.1},
+                sample_output=sample_output,
+            )
+            self.runfile.fingerprint = fp
+            self.telemetry.emit("FINGERPRINT_LOCKED", "system", {
+                "model": fp.model_id,
+                "prompt_hash": fp.prompt_hash,
+            })
+
+        if sample_only:
+            return {"phase": "sampling", "results": sample_results}
+
+        # Approval gate
+        if self.runfile.sampling.auto_pause and not auto_approve:
+            sampling_ratio = self.runfile.sampling.value
+            report = await self.sampling_manager.generate_report(
+                sample_results,
+                total_data_count=len(data),
+                sampling_ratio=sampling_ratio,
+                current_cost_usd=self.ledger.report.total_cost_usd,
+            )
+            self.telemetry.emit_sample_report("system", report)
+
+            # Wait for approval (CLI mode)
+            self.telemetry.emit_status("system", "AWAITING_APPROVAL")
+            await asyncio.get_running_loop().run_in_executor(None, input)
+            self.sampling_manager.approve()
+
+        # Full production
+        self.telemetry.emit_status("system", "FULL_PRODUCTION")
+        full_results = await self.orchestrator.run_mass_production(data)
+        success = sum(1 for r in full_results if r.get("status") == "success")
+
+        # Skill solidification
+        skill_path = ""
+        if self.runfile.workflow:
+            traces = [
+                {"status": r.get("status"), "history": r.get("history", [])}
+                for r in full_results
+            ]
+
+            # Auto cost optimization: record pass_rate on current prompt version
+            node = self.runfile.workflow[0]
+            current = self.lineage.get_current(node)
+            if current:
+                self.lineage.record_stats(node, current.version_id, {
+                    "pass_rate": round(success / len(full_results), 4) if full_results else 0,
+                    "total_cost": self.ledger.report.total_cost_usd,
+                })
+
+            skill_path = self.solidifier.distill(
+                task_name=self.runfile.name,
+                traces=traces,
+                prompt_template=node.actor_prompt_template,
+                model_config={"model": self.actor_provider.model_name},
+                validation_rules=[
+                    r.model_dump() for r in node.loop_config.exit_criteria
+                ],
+            )
+
+        # Cleanup
+        self.redactor.clear_vault()
+
+        self.telemetry.emit_status("system", "COMPLETED")
+
+        return {
+            "phase": "completed",
+            "results": full_results,
+            "success_count": success,
+            "total_count": len(full_results),
+            "skill_path": skill_path,
+            "ledger_summary": self.ledger.get_summary(),
+            "roi_report": self.ledger.get_roi_report(
+                data_count=len(data),
+                success_count=success,
+                skill_id=Path(skill_path).stem if skill_path else "",
+            ),
+        }
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _demo_data() -> List[str]:
+        """Fallback demo data for testing."""
+        return [
+            "人工智能（AI）正在深刻改变各行各业。从医疗诊断到自动驾驶，从金融风控到创意设计，"
+            "AI 技术的应用场景不断扩展。然而，AI 的发展也面临着诸多挑战，包括数据隐私、算法偏见、"
+            "能耗问题以及就业市场冲击。如何在推动技术进步的同时确保负责任的 AI 发展，"
+            "是当前社会各界共同关注的核心议题。",
+
+            "量子计算被认为是下一代计算技术的突破口。与传统计算机使用比特（0或1）不同，"
+            "量子计算机利用量子比特的叠加态和纠缠特性，能够在特定问题上实现指数级加速。"
+            "目前，谷歌、IBM、微软等科技巨头以及众多初创公司都在积极研发量子计算机。",
+
+            "可持续发展已成为全球共识。面对气候变化、资源枯竭和生物多样性丧失等严峻挑战，"
+            "各国政府和企业正在加速向绿色经济转型。可再生能源、循环经济、碳捕获技术"
+            "以及绿色金融等领域的创新正在重塑全球经济格局。",
+        ]

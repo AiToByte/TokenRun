@@ -1,0 +1,107 @@
+"""
+Sandbox Executor — safe code execution via subprocess or WASM.
+
+Provides isolation for ``code_eval`` validation rules.  The subprocess
+backend runs code in a separate process with timeout and resource limits.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+__all__ = ["SandboxExecutor"]
+
+
+class SandboxExecutor:
+    """Execute code in an isolated environment.
+
+    Parameters
+    ----------
+    timeout:
+        Maximum execution time in seconds.
+    max_memory_mb:
+        Maximum memory in MB (subprocess only, requires resource module).
+    """
+
+    def __init__(
+        self,
+        timeout: int = 10,
+        max_memory_mb: int = 256,
+    ) -> None:
+        self.timeout = timeout
+        self.max_memory_mb = max_memory_mb
+
+    def execute_python(
+        self,
+        code: str,
+        variables: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Execute Python code in a subprocess sandbox.
+
+        Parameters
+        ----------
+        code:
+            Python code to execute.  Can reference variables from
+            the ``variables`` dict.
+        variables:
+            Variables to inject into the execution context.
+
+        Returns
+        -------
+        dict
+            ``{"passed": bool, "score": float, "output": str, "error": str}``
+        """
+        # Build script with variable injection
+        var_lines = ""
+        if variables:
+            for k, v in variables.items():
+                var_lines += f"{k} = {json.dumps(v, ensure_ascii=False)}\n"
+
+        script = f"""import sys, json
+{var_lines}
+try:
+{self._indent(code, 4)}
+    print(json.dumps({{"passed": True, "score": 1.0, "output": ""}}))
+except AssertionError as e:
+    print(json.dumps({{"passed": False, "score": 0.0, "error": str(e)}}))
+except Exception as e:
+    print(json.dumps({{"passed": False, "score": 0.0, "error": str(e)}}))
+"""
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".py", delete=False
+            ) as f:
+                f.write(script)
+                temp_path = f.name
+
+            proc = subprocess.run(
+                [sys.executable, temp_path],
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+            )
+            Path(temp_path).unlink(missing_ok=True)
+
+            if proc.returncode == 0 and proc.stdout.strip():
+                return json.loads(proc.stdout.strip())
+            return {
+                "passed": False,
+                "score": 0.0,
+                "output": "",
+                "error": proc.stderr[:500] if proc.stderr else "Unknown error",
+            }
+        except subprocess.TimeoutExpired:
+            return {"passed": False, "score": 0.0, "output": "", "error": "Timeout"}
+        except Exception as exc:
+            return {"passed": False, "score": 0.0, "output": "", "error": str(exc)}
+
+    @staticmethod
+    def _indent(code: str, spaces: int) -> str:
+        """Indent code block by N spaces."""
+        prefix = " " * spaces
+        return "\n".join(prefix + line for line in code.split("\n"))

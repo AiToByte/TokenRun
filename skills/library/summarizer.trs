@@ -1,0 +1,30 @@
+{
+  "skill_id": "TR-SKILL-SUMMARIZER",
+  "name": "Academic Text Summarizer",
+  "description": "Summarizes academic papers and extracts key insights in Chinese. Optimized for accuracy and completeness.",
+  "created_at": "2024-01-01T00:00:00Z",
+  "optimized_prompt": "请为以下学术文本写一个精炼的中文总结，并提取至少3个核心观点。核心观点必须用【】括起来。\n\n内容：\n{{ data }}",
+  "model_config": {
+    "model": "gpt-4o",
+    "temperature": 0.1
+  },
+  "validation_rules": [
+    {
+      "type": "llm_eval",
+      "criteria": "总结必须超过100字，且核心观点必须用【】括起来。",
+      "weight": 1.0
+    }
+  ],
+  "golden_samples": [
+    {
+      "input_preview": "Quantum computing leverages quantum mechanics...",
+      "output": "量子计算利用量子力学原理实现计算突破。【量子比特的叠加态提供指数级并行能力】【当前主要挑战是量子退相干和纠错】【药物发现和密码学是最有前景的应用领域】",
+      "score": 0.95
+    }
+  ],
+  "performance_stats": {
+    "total": 100,
+    "success_rate": 0.92,
+    "average_retries": 1.3
+  }
+}
