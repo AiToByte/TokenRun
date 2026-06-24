@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**TokenRun** is an industrial-grade AI task execution framework that converts expiring ("graveyard") AI tokens into deterministic, high-quality outputs. The core mechanism is **Loop Engineering**: an Actor-Critic loop where an expensive model (Actor) generates output, a cheap model (Critic) audits quality, and the system iterates until quality criteria are met.
+**TokenRun** is an industrial-grade AI task execution framework that converts AI tokens into deterministic, high-quality outputs. The core mechanism is **Loop Engineering**: an Actor-Critic loop where an expensive model (Actor) generates output, a cheap model (Critic) audits quality, and the system iterates until quality criteria are met.
 
 ## Architecture
 

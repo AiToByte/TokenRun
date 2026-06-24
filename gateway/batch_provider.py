@@ -2,7 +2,7 @@
 Batch Provider — OpenAI Batch API integration for cost-efficient bulk processing.
 
 Submits requests via the Batch API at 50% cost.  Results are returned
-within 24 hours.  Ideal for non-urgent "graveyard token" workloads.
+within 24 hours.  Ideal for non-urgent bulk processing workloads.
 
 Usage::
 

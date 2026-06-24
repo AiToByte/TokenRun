@@ -2,162 +2,261 @@
 
 # 🏭 TokenRun
 
-**Industrial-Grade AI Task Execution Framework**
+### Industrial-Grade AI Task Execution Framework
 
-*Convert expiring "graveyard" AI tokens into deterministic, high-quality outputs.*
+**Convert AI tokens into reliable, high-quality outputs.**
 
-[English](#english) | [中文](#中文) | [日本語](#日本語) | [한국어](#한국어)
+[English](#overview) | [中文](docs/README_CN.md) | [日本語](docs/README_JP.md) | [한국어](docs/README_KR.md)
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-345%20passed-brightgreen)](#testing)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-3776AB?logo=python&logoColor=white)](https://python.org)
+[![Next.js 14](https://img.shields.io/badge/Next.js-14-000000?logo=next.js&logoColor=white)](https://nextjs.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Tests](https://img.shields.io/badge/tests-362%20passed-4CAF50)](#testing)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 </div>
 
 ---
 
-<a name="english"></a>
-## 🇬🇧 English
+<a name="overview"></a>
 
-### What is TokenRun?
+## Overview
 
-TokenRun is a production-grade framework that transforms unreliable AI outputs into industrial-quality results through **Loop Engineering** — an Actor-Critic feedback loop where an expensive model generates output, a cheap model audits quality, and the system iterates until quality criteria are met.
+TokenRun is a production-grade framework for executing AI tasks with guaranteed quality. Instead of accepting unreliable one-shot LLM output, TokenRun implements **Loop Engineering** — an Actor-Critic feedback loop where:
 
-**Think of it as a refinery for AI tokens.**
+1. An **expensive model** (Actor) generates output
+2. A **cheap model** (Critic) audits quality against defined criteria
+3. If quality is insufficient, feedback is injected and the Actor retries
+4. The loop continues until quality criteria are met or budget is exhausted
+
+This transforms AI from an unpredictable black box into a deterministic, auditable production pipeline.
 
 ```
-Input (raw data) → Actor (expensive model) → Critic (cheap model audit)
-                       ↑                              │
-                       └──── feedback if failed ───────┘
-                       
-Output: Deterministic, verified, high-quality results
+┌─────────────────────────────────────────────────────────────┐
+│                     TokenRun Pipeline                        │
+│                                                              │
+│  Input → Privacy Redaction → Actor (expensive model)         │
+│              ↓                    ↓                          │
+│         Safe data          Generated output                  │
+│                                  ↓                           │
+│                          Critic (cheap model audit)           │
+│                                  ↓                           │
+│                     ┌── Pass → Final Output                  │
+│                     │                                         │
+│                     └── Fail → Feedback → Actor (retry)      │
+│                                                              │
+│  Token Ledger: real-time cost tracking + budget circuit break│
+│  Persistence: checkpoint/resume after each iteration         │
+│  Fingerprint: lock model+prompt hash for determinism         │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### Key Features
+## Core Features
+
+### Execution Engine
 
 | Feature | Description |
 |---|---|
-| 🔄 **Loop Engineering** | Actor-Critic feedback loop with 3 strategies (FEEDBACK_DRIVEN, EXHAUSTIVE, ONCE) |
-| 📋 **Runfile Blueprints** | Declarative YAML task definitions with validation rules |
-| 🔒 **Privacy Redaction** | Reversible PII masking before data leaves your device |
-| 💰 **Budget Circuit Breaker** | Real-time cost tracking with automatic shutdown |
-| 🎯 **1% Sampling Gate** | Validate quality at minimal cost before full execution |
-| 🔑 **Fingerprint Locking** | Lock model+prompt hash to prevent silent drift |
-| 🧠 **Smart Model Routing** | Auto-escalate from cheap to expensive models on failure |
-| 🩺 **Self-Healing Prompts** | Meta-model auto-optimizes prompts from Critic patterns |
-| 🔍 **Semantic Drift Detection** | Embedding-based similarity monitoring |
-| 📦 **Skill Solidification** | Extract reusable `.trs` skill packages from successful runs |
-| 🔗 **Skill Chaining** | Nest skills like building blocks for complex pipelines |
-| 📊 **Knowledge Distillation** | Export [Input]→[Output] pairs as fine-tuning datasets |
-| 🌐 **MCP Server** | Expose skills as MCP tools for Claude Desktop |
-| ⏱️ **Time-Travel Debugging** | Slider to review any iteration state |
-| 💹 **Live ROI Dashboard** | Real-time value creation metrics |
+| **Loop Engineering** | Actor-Critic feedback loop with 3 strategies: `feedback-driven`, `exhaustive`, `once` |
+| **Programmatic Validation** | `regex` and `json_schema` rules validated without LLM calls — saves tokens |
+| **Multi-dimensional Scoring** | Critic returns per-dimension scores (accuracy, completeness, format) with weighted aggregation |
+| **Dynamic Model Routing** | Auto-escalate from cheap to expensive models after N failed retries |
+| **EXHAUSTIVE Strategy** | Run all attempts, pick the highest-scoring result |
 
-### Architecture
+### Safety & Determinism
+
+| Feature | Description |
+|---|---|
+| **Privacy Redaction** | Reversible PII masking (email, phone, ID, IP, API key) before data leaves your device |
+| **Budget Circuit Breaker** | Real-time USD tracking with automatic shutdown when budget is exhausted |
+| **Fingerprint Locking** | Lock model ID + prompt hash + temperature + seed to prevent silent drift |
+| **1% Sampling Gate** | Validate quality at minimal cost before full production run |
+| **Semantic Drift Detection** | Embedding-based cosine similarity monitoring during long tasks |
+
+### Asset & Ecosystem
+
+| Feature | Description |
+|---|---|
+| **Skill Solidification** | Extract optimal prompts + golden samples into reusable `.trs` skill packages |
+| **Skill Chaining** | Reference `.trs` files in Runfile nodes — build complex pipelines from skill blocks |
+| **Knowledge Distillation** | Export [Input]→[Output] pairs as fine-tuning datasets (OpenAI/Alpaca/ShareGPT) |
+| **Prompt Lineage** | Version-controlled prompt evolution with pass-rate comparison |
+| **Self-Healing** | Meta-model auto-optimizes prompts when Critic detects repeated failure patterns |
+| **MCP Server** | Expose skills as MCP tools for Claude Desktop and other MCP clients |
+
+### Operations
+
+| Feature | Description |
+|---|---|
+| **Token Arbitrage** | Priority queue (HIGH/NORMAL/LOW) with Batch API routing for cost savings |
+| **Drift Detection** | Hash-based + Embedding-based consistency monitoring |
+| **Time-Travel Debugging** | Slider to review any data item at any iteration |
+| **Live ROI Dashboard** | Real-time value creation metrics (items processed, success rate, cost per item) |
+
+## Architecture
 
 ```
 TokenRun/
-├── core/                    # Core engine
-│   ├── models.py            # Pydantic V2 protocol models
-│   ├── runner.py            # Actor-Critic loop engine
-│   ├── orchestrator.py      # Task scheduler (DAG + concurrency)
-│   ├── critic.py            # Cheap model quality auditor
-│   ├── actor.py             # Expensive model executor
-│   ├── ledger.py            # Token budget + circuit breaker
-│   ├── persistence.py       # SQLite checkpoint/resume
-│   ├── drift_detector.py    # Hash + semantic drift detection
-│   ├── self_healer.py       # Auto-prompt optimization
-│   ├── prompt_lineage.py    # Version control for prompts
-│   ├── solidifier.py        # Skill extraction + .trs export
-│   ├── cost_scheduler.py    # Token arbitrage routing
-│   ├── task_queue.py        # Priority queue (HIGH/NORMAL/LOW)
-│   ├── sampling_manager.py  # 1% sampling gate
-│   ├── telemetry.py         # Event broadcasting
-│   ├── sandbox.py           # Safe code execution
-│   └── mcp_server.py        # MCP protocol server
-├── gateway/                 # I/O layer
-│   ├── provider.py          # LLM client (OpenAI-compatible)
-│   ├── privacy.py           # PII redaction engine
-│   ├── file_gateway.py      # Local file streaming
-│   ├── batch_provider.py    # OpenAI Batch API (50% cost)
-│   ├── s3_gateway.py        # S3-compatible storage
-│   ├── sql_gateway.py       # SQL database access
-│   ├── video_gateway.py     # Video frame extraction
-│   └── audio_gateway.py     # Audio transcription (Whisper)
-├── api/                     # FastAPI backend
-│   └── main.py              # REST + WebSocket + SSE
-├── web/                     # Next.js Cockpit UI
+├── core/                        # Core engine (12 modules)
+│   ├── models.py                # Pydantic V2 protocol (Runfile, TaskNode, Trace)
+│   ├── runner.py                # actor-critic loop engine
+│   ├── orchestrator.py          # DAG scheduler + concurrency + pause/resume
+│   ├── actor.py                 # expensive model executor (Jinja2 templates)
+│   ├── critic.py                # cheap model auditor (structured JSON)
+│   ├── ledger.py                # token budget + circuit breaker
+│   ├── persistence.py           # SQLite checkpoint/resume
+│   ├── drift_detector.py        # hash + semantic drift detection
+│   ├── self_healer.py           # auto-prompt optimization
+│   ├── prompt_lineage.py        # prompt version control
+│   ├── solidifier.py            # skill extraction + .trs export
+│   ├── cost_scheduler.py        # token arbitrage routing
+│   ├── task_queue.py            # priority queue (HIGH/NORMAL/LOW)
+│   ├── sampling_manager.py      # 1% sampling gate
+│   ├── telemetry.py             # event broadcasting
+│   ├── sandbox.py               # secure code execution
+│   ├── mcp_server.py            # MCP protocol server
+│   └── app.py                   # main controller class
+├── gateway/                     # I/O layer (9 modules)
+│   ├── provider.py              # LLM client (OpenAI-compatible)
+│   ├── privacy.py               # PII redaction engine
+│   ├── file_gateway.py          # local file streaming
+│   ├── batch_provider.py        # OpenAI Batch API (50% cost)
+│   ├── mcp_client.py            # MCP client for external servers
+│   ├── s3_gateway.py            # S3-compatible storage
+│   ├── sql_gateway.py           # SQL database access
+│   ├── video_gateway.py         # video frame extraction
+│   └── audio_gateway.py         # audio transcription (Whisper)
+├── api/                         # FastAPI backend
+│   └── main.py                  # REST + WebSocket + SSE
+├── web/                         # Next.js Cockpit UI
 │   └── src/
-│       ├── app/             # Dashboard, Missions, Skills
-│       ├── components/      # ShadcnUI-style components
-│       └── lib/             # API client + WebSocket hook
-├── tests/                   # 345 tests (pytest)
-├── skills/library/          # Preset skill packages
-├── docs/                    # Design documents
-├── Dockerfile               # Backend container
-└── docker-compose.yml       # Full stack orchestration
+│       ├── app/                 # Dashboard, Missions, Skills pages
+│       ├── components/          # ShadcnUI-style components
+│       └── lib/                 # API client + WebSocket hook
+├── tests/                       # 362 tests (pytest)
+├── skills/library/              # Preset skill packages
+├── docs/                        # Design documents (14 files)
+├── runfiles/                    # User task blueprints
+├── Dockerfile                   # Backend container
+└── docker-compose.yml           # Full stack orchestration
 ```
 
-### Quick Start
+## Quick Start
+
+### Prerequisites
+
+- Python 3.10+
+- Node.js 18+ (for frontend)
+- An OpenAI-compatible API key
+
+### Install
 
 ```bash
-# Clone
 git clone https://github.com/AiToByte/TokenRun.git
 cd TokenRun
-
-# Install
 pip install -e ".[dev]"
+```
 
-# Configure API key
+### Configure
+
+```bash
 cp .env.example .env
-# Edit .env with your OPENAI_API_KEY
+# Edit .env with your API key:
+# OPENAI_API_KEY=sk-your-key-here
+```
 
-# Run tests
+### Run Tests
+
+```bash
 python -m pytest tests/ -v
+```
 
-# CLI mode
+### CLI Mode
+
+```bash
 python main.py                           # default test mission
 python main.py runfiles/custom.yaml      # custom Runfile
-python main.py --sample-only             # sampling only
+python main.py --sample-only             # sampling phase only
+```
 
-# API mode
+### API Mode
+
+```bash
 uvicorn api.main:app --reload            # localhost:8000
+```
 
-# Frontend
+### Frontend
+
+```bash
 cd web && npm install && npm run dev     # localhost:3000
+```
 
-# Docker
+### Docker
+
+```bash
 docker-compose up                        # backend:8000 + frontend:3000
 ```
 
-### Runfile Example
+## Runfile Format
+
+A Runfile is a YAML blueprint that declares what to do, how to do it, and under what constraints.
 
 ```yaml
 name: "Finance_Refinery"
+version: "1.0"
+
 workflow:
   - id: "classifier"
     name: "Transaction Classification"
     actor_prompt_template: |
-      Classify this transaction: {{ data }}
+      Classify this transaction into a category.
       Output JSON: {"category": "...", "confidence": 0.0-1.0}
+
+      Transaction: {{ data }}
     model_tiers:
-      - { model: "gpt-4o-mini", escalate_after: 2 }  # cheap first
-      - { model: "gpt-4o", escalate_after: 3 }        # escalate on failure
+      - { model: "gpt-4o-mini", escalate_after: 2 }
+      - { model: "gpt-4o", escalate_after: 3 }
     loop_config:
       strategy: "feedback-driven"
       max_attempts: 5
       min_score: 0.85
+      retry_delay: 1
+      score_weights:
+        accuracy: 2.0
+        format: 1.0
       exit_criteria:
         - type: "json_schema"
           criteria: {"required": ["category", "confidence"]}
         - type: "llm_eval"
           criteria: "Classification must follow accounting logic"
 
+security:
+  masking_rules: ["emails", "api_keys", "phones"]
+
+sampling:
+  enabled: true
+  mode: "percentage"
+  value: 0.01
+  auto_pause: true
+
 governance:
   max_usd: 5.0
+  max_loop_count: 10000
 ```
 
-### Testing
+## Environment Variables
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `OPENAI_API_KEY` | Shared API key (fallback for both) | — |
+| `ACTOR_API_KEY` | Actor model API key | inherits `OPENAI_API_KEY` |
+| `ACTOR_BASE_URL` | Actor API endpoint | `https://api.openai.com/v1` |
+| `ACTOR_MODEL` | Actor model name | `gpt-4o` |
+| `CRITIC_API_KEY` | Critic model API key | inherits `ACTOR_API_KEY` |
+| `CRITIC_BASE_URL` | Critic API endpoint | inherits `ACTOR_BASE_URL` |
+| `CRITIC_MODEL` | Critic model name | `gpt-4o-mini` |
+
+## Testing
 
 ```bash
 # Full suite
@@ -166,11 +265,18 @@ python -m pytest tests/ -v
 # Single test
 python -m pytest tests/test_runner.py::TestActorCriticLoop::test_first_attempt_passes -v
 
-# Coverage
+# With coverage
 python -m pytest tests/ --cov=core --cov=gateway --cov=api
 ```
 
-### Tech Stack
+**362 tests** across 25 test files covering:
+- Unit tests (models, privacy, ledger, provider, solidifier, persistence)
+- Integration tests (E2E lifecycle, DAG execution, drift detection)
+- Edge cases (budget fuse, cyclic dependencies, empty inputs)
+- Security tests (PII protection, sandbox restrictions)
+- Performance tests (throughput benchmarks)
+
+## Tech Stack
 
 | Layer | Technology |
 |---|---|
@@ -179,148 +285,29 @@ python -m pytest tests/ --cov=core --cov=gateway --cov=api
 | Storage | SQLite (traces), DuckDB (future) |
 | Frontend | Next.js 14, TailwindCSS, TypeScript |
 | Testing | pytest, pytest-asyncio |
+| Linting | ruff |
 | Deployment | Docker, GitHub Actions CI/CD |
 
----
-
-<a name="中文"></a>
-## 🇨🇳 中文
-
-### TokenRun 是什么？
-
-TokenRun 是一个**工业级 AI 任务执行框架**，通过 **Loop Engineering（循环工程）** 将不可靠的 AI 输出转化为工业级质量的结果。
-
-核心机制：**Actor-Critic 循环**
-- **Actor**（昂贵模型，如 GPT-4o）：执行任务生成输出
-- **Critic**（廉价模型，如 GPT-4o-mini）：审计质量并给出反馈
-- **循环**：不合格则注入反馈重新生成，直到通过或达到最大次数
-
-### 核心特性
-
-- 🔄 **三种循环策略**：反馈驱动、穷举最优、单次执行
-- 📋 **声明式 Runfile**：YAML 任务蓝图，定义工作流、校验规则、预算
-- 🔒 **隐私脱敏**：可逆占位符替换，云端永远看不到真实数据
-- 💰 **预算熔断**：实时 Token 计费，超限立即停止
-- 🎯 **1% 采样闸门**：低成本验证逻辑后再全量执行
-- 🧠 **动态模型路由**：先用廉价模型初筛，失败后自动提权
-- 🩺 **Runfile 自愈**：Critic 连续相似反馈时，元模型自动优化 Prompt
-- 🔍 **语义漂移检测**：基于 Embedding 向量相似度的质量监控
-- 📦 **技能固化**：执行完成后提取最优配置为 `.trs` 技能包
-- 🔗 **技能递归**：Runfile 中直接引用技能文件，形成"技能积木"
-- 📊 **知识蒸馏**：导出 [输入]→[输出] 对为微调数据集
-- 🌐 **MCP Server**：作为 MCP 服务器运行，Claude Desktop 可直接调用技能
-
-### 快速开始
-
-```bash
-git clone https://github.com/AiToByte/TokenRun.git
-cd TokenRun
-pip install -e ".[dev]"
-cp .env.example .env
-# 编辑 .env 填入 OPENAI_API_KEY
-python -m pytest tests/ -v
-python main.py
-```
-
-### Runfile 示例
-
-```yaml
-name: "财务报告提纯"
-workflow:
-  - id: "classifier"
-    name: "交易分类"
-    actor_prompt_template: "将以下交易分类：{{ data }}"
-    model_tiers:
-      - { model: "gpt-4o-mini", escalate_after: 2 }
-      - { model: "gpt-4o", escalate_after: 3 }
-    loop_config:
-      max_attempts: 5
-      min_score: 0.85
-      exit_criteria:
-        - type: "llm_eval"
-          criteria: "分类必须符合财务会计逻辑"
-
-governance:
-  max_usd: 5.0
-```
-
----
-
-<a name="日本語"></a>
-## 🇯🇵 日本語
-
-### TokenRun とは？
-
-TokenRun は、**ループエンジニアリング**を通じて信頼性の低い AI 出力を工業品質の結果に変換する**産業用 AI タスク実行フレームワーク**です。
-
-### 主な特徴
-
-- 🔄 **Actor-Critic ループ**：高価なモデルが生成し、安いモデルが品質を監査
-- 📋 **宣言的 Runfile**：YAML タスクブループリント
-- 🔒 **プライバシー脱感作**：可逆的なPIIマスキング
-- 💰 **予算サーキットブレーカー**：リアルタイムコスト追跡
-- 🎯 **1% サンプリングゲート**：低コストで品質検証
-- 🧠 **スマートモデルルーティング**：失敗時に自動エスカレーション
-- 📦 **スキル固化**：`.trs` スキルパッケージへの抽出
-- 🌐 **MCP サーバー**：Claude Desktop から直接スキル呼び出し
-
-### クイックスタート
-
-```bash
-git clone https://github.com/AiToByte/TokenRun.git
-cd TokenRun
-pip install -e ".[dev]"
-cp .env.example .env
-python -m pytest tests/ -v
-python main.py
-```
-
----
-
-<a name="한국어"></a>
-## 🇰🇷 한국어
-
-### TokenRun이란?
-
-TokenRun은 **루프 엔지니어링**을 통해 신뢰할 수 없는 AI 출력을 산업 품질의 결과로 변환하는 **산업용 AI 작업 실행 프레임워크**입니다.
-
-### 주요 기능
-
-- 🔄 **Actor-Critic 루프**: 비싼 모델이 생성하고 저렴한 모델이 품질을 감사
-- 📋 **선언적 Runfile**: YAML 작업 청사진
-- 🔒 **프라이버시 비식별화**: 가역적 PII 마스킹
-- 💰 **예산 차단기**: 실시간 비용 추적
-- 🎯 **1% 샘플링 게이트**: 저비용 품질 검증
-- 🧠 **스마트 모델 라우팅**: 실패 시 자동 에스컬레이션
-- 📦 **스킬 고체화**: `.trs` 스킬 패키지로 추출
-- 🌐 **MCP 서버**: Claude Desktop에서 직접 스킬 호출
-
-### 빠른 시작
-
-```bash
-git clone https://github.com/AiToByte/TokenRun.git
-cd TokenRun
-pip install -e ".[dev]"
-cp .env.example .env
-python -m pytest tests/ -v
-python main.py
-```
-
----
-
-## 📄 License
-
-MIT License — see [LICENSE](LICENSE) for details.
-
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/amazing-feature`)
 3. Run tests (`python -m pytest tests/ -v`)
-4. Commit your changes (`git commit -m 'feat: add amazing feature'`)
-5. Push to the branch (`git push origin feature/amazing-feature`)
-6. Open a Pull Request
+4. Run lint (`ruff check core/ gateway/ api/ main.py`)
+5. Commit your changes (`git commit -m 'feat: add amazing feature'`)
+6. Push to the branch (`git push origin feature/amazing-feature`)
+7. Open a Pull Request
 
-## 📧 Contact
+## License
 
-- GitHub: [AiToByte/TokenRun](https://github.com/AiToByte/TokenRun)
+MIT License — see [LICENSE](LICENSE) for details.
+
+---
+
+<div align="center">
+
+**TokenRun** — Transform AI tokens into reliable, high-quality outputs.
+
+[GitHub](https://github.com/AiToByte/TokenRun) · [Issues](https://github.com/AiToByte/TokenRun/issues)
+
+</div>
