@@ -441,13 +441,13 @@ export default function MissionsPage() {
                     Version Comparison
                   </div>
                   <div className="text-xs text-gray-600">
-                    {lineage[0].version_id} → {lineage[lineage.length - 1].version_id}
-                    {lineage[0].stats?.pass_rate !== undefined &&
-                      lineage[lineage.length - 1].stats?.pass_rate !== undefined && (
+                    {lineage[0]?.version_id} → {lineage[lineage.length - 1]?.version_id}
+                    {lineage[0]?.stats?.pass_rate !== undefined &&
+                      lineage[lineage.length - 1]?.stats?.pass_rate !== undefined && (
                         <span className="ml-2">
                           Pass rate:{" "}
-                          {((lineage[0].stats.pass_rate as number) * 100).toFixed(0)}% →{" "}
-                          {((lineage[lineage.length - 1].stats.pass_rate as number) * 100).toFixed(0)}%
+                          {((lineage[0]!.stats!.pass_rate as number) * 100).toFixed(0)}% →{" "}
+                          {((lineage[lineage.length - 1]!.stats!.pass_rate as number) * 100).toFixed(0)}%
                         </span>
                       )}
                   </div>
