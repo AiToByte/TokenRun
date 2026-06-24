@@ -8,6 +8,7 @@ This is the "main control console" described in the integration design.
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -116,13 +117,20 @@ class TokenRunApp:
 
             elif res.type.value == "mcp_tool":
                 # MCP Tool: call external MCP server to get data
+                # Resource.uri = mcp://server:port
+                # Resource.description = tool name
+                # Resource.id = optional JSON arguments
                 try:
                     from gateway.mcp_client import MCPClient
 
                     server_url = res.uri.replace("mcp://", "http://")
+                    tool_name = res.description or "list_data"
+                    tool_args = {}
+                    if res.id and res.id.startswith("{"):
+                        tool_args = json.loads(res.id)
+
                     async with MCPClient(server_url) as client:
-                        tool_name = res.description or "list_data"
-                        result = await client.call_tool(tool_name, {})
+                        result = await client.call_tool(tool_name, tool_args)
                         content = result.get("content", [])
                         items = [
                             c.get("text", "")
@@ -269,6 +277,28 @@ class TokenRunApp:
                     r.model_dump() for r in node.loop_config.exit_criteria
                 ],
             )
+
+            # Auto distillation: export fine-tune data if success rate > 90%
+            success_rate = success / len(full_results) if full_results else 0
+            if success_rate > 0.9 and len(full_results) >= 5:
+                try:
+                    ft_path = self.solidifier.export_fine_tune(
+                        traces, format="openai", min_score=0.8
+                    )
+                    print(
+                        f"📊 [自动蒸馏] 成功率 {success_rate:.0%} > 90%，已导出训练数据: {ft_path}"
+                    )
+                    self.telemetry.emit(
+                        "AUTO_DISTILLATION",
+                        "system",
+                        {
+                            "file_path": ft_path,
+                            "success_rate": round(success_rate, 4),
+                            "item_count": len(full_results),
+                        },
+                    )
+                except Exception as exc:
+                    print(f"⚠️ [自动蒸馏] 导出失败: {exc}")
 
         # Cleanup
         self.redactor.clear_vault()

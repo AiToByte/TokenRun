@@ -385,6 +385,38 @@ async def get_lineage(mission_id: str) -> List[Dict[str, Any]]:
     return m.get("lineage", [])
 
 
+@app.post("/missions/{mission_id}/apply-healing")
+async def apply_healing(mission_id: str) -> Dict[str, str]:
+    """Apply self-healing suggestion — create new PromptVersion and trigger resample."""
+    m = _active_missions.get(mission_id)
+    if not m:
+        raise HTTPException(404, "Mission not found")
+
+    from core.self_healer import SelfHealer  # noqa: F401
+
+    # Get the suggestion from the mission's healing data
+    healing_data = m.get("healing_suggestion")
+    if not healing_data:
+        raise HTTPException(400, "No healing suggestion available")
+
+    # Create a new prompt version with the suggested prompt
+    new_prompt = healing_data.get("suggested_prompt", "")
+    if not new_prompt:
+        raise HTTPException(400, "No suggested prompt in healing data")
+
+    m["phase"] = "RESAMPLING"
+    m["status"] = "pending"
+    await _broadcast(
+        {
+            "type": "HEALING_APPLIED",
+            "mission_id": mission_id,
+            "new_prompt": new_prompt,
+        }
+    )
+
+    return {"status": "healing_applied", "new_prompt": new_prompt}
+
+
 @app.post("/missions/{mission_id}/export")
 async def export_fine_tune(
     mission_id: str,

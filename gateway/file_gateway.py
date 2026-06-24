@@ -40,7 +40,12 @@ class FileGateway:
         Each yield is a dict with keys: ``file_name``, ``relative_path``,
         ``content``, ``size``.
         """
+        # Path traversal protection: ensure resolved paths stay within base
+        base_resolved = self.base_path.resolve()
         for file_path in sorted(self.base_path.glob(pattern)):
+            resolved = file_path.resolve()
+            if not str(resolved).startswith(str(base_resolved)):
+                continue  # skip files outside base directory
             if file_path.is_file():
                 try:
                     content = file_path.read_text(encoding="utf-8")

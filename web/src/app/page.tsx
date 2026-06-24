@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { fetchMissions, fetchSkills } from "../lib/api";
+import { useEffect, useState, useCallback } from "react";
+import { fetchMissions, fetchSkills, connectWebSocket } from "../lib/api";
 
 interface Mission {
   mission_id: string;
@@ -19,13 +19,47 @@ interface Skill {
   created_at: string;
 }
 
+interface DataPoint {
+  time: number;
+  cost: number;
+  items: number;
+  successRate: number;
+}
+
 export default function Dashboard() {
   const [missions, setMissions] = useState<Mission[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
+  const [roiHistory, setRoiHistory] = useState<DataPoint[]>([]);
+
+  const refresh = () => {
+    fetchMissions().then((data) => {
+      setMissions(data);
+      // Build ROI data points from missions
+      const now = Date.now();
+      const totalCost = data.reduce((s: number, m: Mission) => s + m.cost_usd, 0);
+      const totalItems = data.reduce((s: number, m: Mission) => s + m.total_count, 0);
+      const totalSuccess = data.reduce((s: number, m: Mission) => s + m.success_count, 0);
+      const successRate = totalItems > 0 ? totalSuccess / totalItems : 0;
+      setRoiHistory((prev) => [
+        ...prev.slice(-29),
+        { time: now, cost: totalCost, items: totalItems, successRate },
+      ]);
+    }).catch(console.error);
+  };
 
   useEffect(() => {
-    fetchMissions().then(setMissions).catch(console.error);
+    refresh();
     fetchSkills().then(setSkills).catch(console.error);
+
+    // WebSocket for real-time updates
+    connectWebSocket((event) => {
+      if (event.type === "STATUS_UPDATE" || event.type === "COMPLETED") {
+        refresh();
+      }
+    });
+
+    const interval = setInterval(refresh, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   // Aggregate value metrics
@@ -77,6 +111,17 @@ export default function Dashboard() {
           />
         </div>
       </div>
+
+      {/* ROI Real-time Chart */}
+      {roiHistory.length > 1 && (
+        <div className="bg-white border border-gray-200 rounded-lg p-6">
+          <h3 className="text-lg font-semibold mb-4">
+            Real-time Value Curve
+            <span className="ml-2 text-xs text-green-600 animate-pulse">● Live</span>
+          </h3>
+          <ROIChart data={roiHistory} />
+        </div>
+      )}
 
       {/* Stats cards */}
       <div className="grid grid-cols-4 gap-4">
@@ -219,5 +264,80 @@ function StatusBadge({ status }: { status: string }) {
     <span className={`text-xs px-2 py-1 rounded ${colors[status] || colors.pending}`}>
       {status}
     </span>
+  );
+}
+
+function ROIChart({ data }: { data: DataPoint[] }) {
+  if (data.length < 2) return null;
+
+  const width = 600;
+  const height = 200;
+  const padding = { top: 20, right: 60, bottom: 30, left: 50 };
+  const chartW = width - padding.left - padding.right;
+  const chartH = height - padding.top - padding.bottom;
+
+  const maxCost = Math.max(...data.map((d) => d.cost), 0.01);
+  const maxItems = Math.max(...data.map((d) => d.items), 1);
+
+  const xScale = (i: number) => padding.left + (i / (data.length - 1)) * chartW;
+  const yCostScale = (v: number) => padding.top + chartH - (v / maxCost) * chartH;
+  const yItemScale = (v: number) => padding.top + chartH - (v / maxItems) * chartH;
+
+  const costPath = data
+    .map((d, i) => `${i === 0 ? "M" : "L"} ${xScale(i)} ${yCostScale(d.cost)}`)
+    .join(" ");
+  const itemPath = data
+    .map((d, i) => `${i === 0 ? "M" : "L"} ${xScale(i)} ${yItemScale(d.items)}`)
+    .join(" ");
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto">
+      {/* Grid lines */}
+      {[0, 0.25, 0.5, 0.75, 1].map((pct) => (
+        <line
+          key={pct}
+          x1={padding.left}
+          y1={padding.top + chartH * (1 - pct)}
+          x2={width - padding.right}
+          y2={padding.top + chartH * (1 - pct)}
+          stroke="#e5e7eb"
+          strokeWidth={0.5}
+        />
+      ))}
+
+      {/* Cost line */}
+      <path d={costPath} fill="none" stroke="#f59e0b" strokeWidth={2} />
+      {data.map((d, i) => (
+        <circle key={`c-${i}`} cx={xScale(i)} cy={yCostScale(d.cost)} r={3} fill="#f59e0b" />
+      ))}
+
+      {/* Items line */}
+      <path d={itemPath} fill="none" stroke="#3b82f6" strokeWidth={2} />
+      {data.map((d, i) => (
+        <circle key={`i-${i}`} cx={xScale(i)} cy={yItemScale(d.items)} r={3} fill="#3b82f6" />
+      ))}
+
+      {/* Y-axis labels (cost) */}
+      <text x={padding.left - 5} y={padding.top} textAnchor="end" fontSize={10} fill="#6b7280">
+        ${maxCost.toFixed(2)}
+      </text>
+      <text x={padding.left - 5} y={padding.top + chartH} textAnchor="end" fontSize={10} fill="#6b7280">
+        $0
+      </text>
+
+      {/* Y-axis labels (items) */}
+      <text x={width - padding.right + 5} y={padding.top} textAnchor="start" fontSize={10} fill="#6b7280">
+        {maxItems}
+      </text>
+      <text x={width - padding.right + 5} y={padding.top + chartH} textAnchor="start" fontSize={10} fill="#6b7280">
+        0
+      </text>
+
+      {/* Legend */}
+      <circle cx={padding.left} cy={height - 5} r={4} fill="#f59e0b" />
+      <text x={padding.left + 8} y={height - 2} fontSize={10} fill="#6b7280">Cost ($)</text>
+      <circle cx={padding.left + 80} cy={height - 5} r={4} fill="#3b82f6" />
+      <text x={padding.left + 88} y={height - 2} fontSize={10} fill="#6b7280">Items</text>
+    </svg>
   );
 }

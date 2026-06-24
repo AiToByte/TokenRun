@@ -361,6 +361,14 @@ class TROrchestrator:
         # --- Wait if paused ---
         await self._pause_event.wait()
 
+        # --- Replay signal: check if a replay was requested ---
+        if self._replay_event.is_set():
+            if self._replay_prompt and self.runfile.workflow:
+                node = node_override or self.runfile.workflow[0]
+                node.actor_prompt_template = self._replay_prompt
+                self._replay_prompt = None
+            self._replay_event.clear()
+
         # --- Quality circuit breaker ---
         if self._quality_halted:
             return {

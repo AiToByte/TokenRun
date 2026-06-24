@@ -355,18 +355,18 @@ class ActorCriticLoop:
         output: str,
         rules: List[ValidationRule],
     ) -> EvaluationResult:
-        """Run consensus validation with multiple models.
+        """Run consensus validation with multiple models in parallel.
 
-        Calls additional critics and takes majority vote on ``passed``.
-        The primary result's scores are merged with consensus scores.
+        Calls additional critics concurrently and takes majority vote on
+        ``passed``.  The primary result's scores are merged with consensus
+        scores.
         """
         threshold = node.loop_config.consensus_threshold
         votes = [primary_result.passed]
         all_scores = [primary_result.scores]
 
-        for model_name in consensus_models:
+        async def _call_consensus(model_name: str) -> Optional[EvaluationResult]:
             try:
-                # Create a temporary critic with the consensus model
                 from gateway.provider import LLMProvider
 
                 provider = LLMProvider(
@@ -381,12 +381,21 @@ class ActorCriticLoop:
                     output_content=output,
                     rules=rules,
                 )
+                await provider.close()
+                return result
+            except Exception:
+                return None
+
+        # Parallel call to all consensus models
+        results = await asyncio.gather(
+            *[_call_consensus(m) for m in consensus_models],
+            return_exceptions=False,
+        )
+
+        for result in results:
+            if result is not None:
                 votes.append(result.passed)
                 all_scores.append(result.scores)
-                await provider.close()
-            except Exception:
-                # Consensus model failure — skip this vote
-                pass
 
         # Majority vote
         pass_count = sum(1 for v in votes if v)

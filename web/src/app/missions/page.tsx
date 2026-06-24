@@ -388,55 +388,22 @@ export default function MissionsPage() {
           </button>
         </div>
 
-        {/* Prompt Lineage Display */}
+        {/* Prompt Lineage — Version Tree */}
         <div className="mt-4 border-t pt-3">
           <h4 className="text-xs font-semibold text-gray-600 mb-2">
-            Prompt Lineage
+            Prompt Evolution Tree
           </h4>
           {lineage.length === 0 ? (
             <div className="text-xs text-gray-400">
               No versions yet. Start a mission to create v1.0.
             </div>
           ) : (
-            <div className="space-y-2">
-              {lineage.map((v, i) => (
-                <div
-                  key={v.version_id}
-                  className="text-xs p-2 bg-gray-50 rounded border"
-                >
-                  <div className="flex justify-between items-center">
-                    <span className="font-mono font-semibold">
-                      {v.version_id}
-                    </span>
-                    {i === lineage.length - 1 && (
-                      <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">
-                        Current
-                      </span>
-                    )}
-                  </div>
-                  {v.change_log && (
-                    <div className="text-gray-500 mt-1">{v.change_log}</div>
-                  )}
-                  {v.stats && Object.keys(v.stats).length > 0 && (
-                    <div className="mt-1 flex gap-2">
-                      {v.stats.pass_rate !== undefined && (
-                        <span className="text-green-600">
-                          Pass: {(v.stats.pass_rate * 100).toFixed(0)}%
-                        </span>
-                      )}
-                      {v.stats.total_cost !== undefined && (
-                        <span className="text-gray-500">
-                          Cost: ${v.stats.total_cost.toFixed(4)}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
+            <>
+              <VersionTree lineage={lineage} />
 
               {/* Version comparison */}
               {lineage.length >= 2 && (
-                <div className="mt-2 p-2 bg-blue-50 rounded border border-blue-200">
+                <div className="mt-3 p-2 bg-blue-50 rounded border border-blue-200">
                   <div className="text-xs font-semibold text-blue-700 mb-1">
                     Version Comparison
                   </div>
@@ -453,10 +420,95 @@ export default function MissionsPage() {
                   </div>
                 </div>
               )}
-            </div>
+            </>
           )}
         </div>
       </aside>
+    </div>
+  );
+}
+
+function VersionTree({ lineage }: { lineage: PromptVersion[] }) {
+  const nodeW = 120;
+  const nodeH = 60;
+  const gapX = 40;
+  const gapY = 20;
+  const width = lineage.length * (nodeW + gapX) + gapX;
+  const height = nodeH + gapY * 2;
+
+  return (
+    <div className="overflow-x-auto">
+      <svg width={width} height={height} className="mb-2">
+        {/* Edges */}
+        {lineage.map((v, i) => {
+          if (i === 0) return null;
+          const x1 = gapX + (i - 1) * (nodeW + gapX) + nodeW;
+          const y1 = gapY + nodeH / 2;
+          const x2 = gapX + i * (nodeW + gapX);
+          const y2 = gapY + nodeH / 2;
+          return (
+            <line
+              key={`edge-${i}`}
+              x1={x1} y1={y1} x2={x2} y2={y2}
+              stroke="#94a3b8" strokeWidth={2} markerEnd="url(#arrow)"
+            />
+          );
+        })}
+
+        {/* Arrow marker */}
+        <defs>
+          <marker id="arrow" markerWidth={8} markerHeight={6} refX={8} refY={3} orient="auto">
+            <path d="M0,0 L8,3 L0,6 Z" fill="#94a3b8" />
+          </marker>
+        </defs>
+
+        {/* Nodes */}
+        {lineage.map((v, i) => {
+          const x = gapX + i * (nodeW + gapX);
+          const y = gapY;
+          const isLast = i === lineage.length - 1;
+          const passRate = v.stats?.pass_rate as number | undefined;
+
+          return (
+            <g key={v.version_id}>
+              <rect
+                x={x} y={y} width={nodeW} height={nodeH}
+                rx={8}
+                fill={isLast ? "#eff6ff" : "#f8fafc"}
+                stroke={isLast ? "#3b82f6" : "#cbd5e1"}
+                strokeWidth={isLast ? 2 : 1}
+              />
+              <text
+                x={x + nodeW / 2} y={y + 18}
+                textAnchor="middle" fontSize={12} fontWeight="bold"
+                fill={isLast ? "#1e40af" : "#334155"}
+              >
+                {v.version_id}
+              </text>
+              {passRate !== undefined && (
+                <text
+                  x={x + nodeW / 2} y={y + 35}
+                  textAnchor="middle" fontSize={10}
+                  fill={passRate >= 0.8 ? "#16a34a" : "#dc2626"}
+                >
+                  {(passRate * 100).toFixed(0)}% pass
+                </text>
+              )}
+              {v.change_log && (
+                <text
+                  x={x + nodeW / 2} y={y + 50}
+                  textAnchor="middle" fontSize={9} fill="#94a3b8"
+                >
+                  {v.change_log.substring(0, 15)}
+                </text>
+              )}
+              {isLast && (
+                <circle cx={x + nodeW - 8} cy={y + 8} r={4} fill="#3b82f6" />
+              )}
+            </g>
+          );
+        })}
+      </svg>
     </div>
   );
 }
