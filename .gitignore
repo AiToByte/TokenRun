@@ -106,3 +106,4 @@ previews/
 
 # Compiled Pydantic models
 *.pydantic.json
+repomix-output.xml
