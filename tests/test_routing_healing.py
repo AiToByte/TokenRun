@@ -58,10 +58,18 @@ class TestDynamicRouting:
         tier1_provider.request = AsyncMock(return_value=LLMResponse(
             content="output", prompt_tokens=10, completion_tokens=5, model_name="gpt-4o-mini"
         ))
+        tier1_provider._api_key = "test"
+        tier1_provider.base_url = "http://test"
 
         tier2_provider = MagicMock(spec=LLMProvider)
         tier2_provider.model_name = "gpt-4o"
+        tier2_provider.request = AsyncMock(return_value=LLMResponse(
+            content="output", prompt_tokens=10, completion_tokens=5, model_name="gpt-4o"
+        ))
+        tier2_provider._api_key = "test"
+        tier2_provider.base_url = "http://test"
 
+        # The original actor is used when no tier escalation
         actor = MagicMock()
         actor.provider = tier1_provider
         actor.generate = AsyncMock(return_value=LLMResponse(

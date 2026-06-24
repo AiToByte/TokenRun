@@ -149,6 +149,8 @@ class LoopConfig(BaseModel):
     min_score: float = 0.85  # weighted score threshold to pass
     consensus_models: List[str] = Field(default_factory=list)  # multi-model consensus
     consensus_threshold: float = 0.5  # fraction of models that must agree
+    critic_model: Optional[str] = None  # override critic model for this node
+    critic_base_url: Optional[str] = None  # override critic API endpoint
 
 
 class ModelTier(BaseModel):

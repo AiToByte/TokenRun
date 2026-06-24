@@ -31,6 +31,11 @@ class TelemetryManager:
     Supports registering callback handlers for real-time event
     consumption (CLI logging, WebSocket push, etc.).
 
+    Telemetry levels:
+        L1 — Progress + exceptions only (default, low bandwidth)
+        L2 — Node-level detail (when user inspects a specific node)
+        L3 — Full trace (every iteration, high bandwidth)
+
     Usage::
 
         telemetry = TelemetryManager()
@@ -38,32 +43,43 @@ class TelemetryManager:
         telemetry.emit("TRACE_EVENT", "task-1", {"output": "..."})
     """
 
-    def __init__(self) -> None:
+    def __init__(self, level: int = 1) -> None:
         self._handlers: List[Callable[[TelemetryEvent], None]] = []
         self._event_log: List[TelemetryEvent] = []
+        self.level = level  # 1=L1, 2=L2, 3=L3
 
     def on_event(self, handler: Callable[[TelemetryEvent], None]) -> None:
         """Register an event handler callback."""
         self._handlers.append(handler)
+
+    def set_level(self, level: int) -> None:
+        """Change the telemetry level at runtime."""
+        self.level = max(1, min(3, level))
 
     def emit(
         self,
         event_type: str,
         task_id: str,
         data: Optional[Dict[str, Any]] = None,
-    ) -> TelemetryEvent:
+        level: int = 1,
+    ) -> Optional[TelemetryEvent]:
         """Emit a telemetry event to all registered handlers.
 
         Parameters
         ----------
         event_type:
-            One of ``STATUS_UPDATE``, ``TRACE_EVENT``,
-            ``APPROVAL_REQUIRED``, ``ERROR``.
+            Event type string.
         task_id:
-            The mission or task identifier.
+            Mission or task identifier.
         data:
-            Arbitrary event payload.
+            Event payload.
+        level:
+            Telemetry level (1=L1, 2=L2, 3=L3).
+            Only emits if ``level <= self.level``.
         """
+        if level > self.level:
+            return None
+
         event = TelemetryEvent(
             event_type=event_type,
             task_id=task_id,
@@ -87,8 +103,8 @@ class TelemetryManager:
         passed: bool,
         score: float,
         output_preview: str = "",
-    ) -> TelemetryEvent:
-        """Convenience: emit a TRACE_EVENT for a single loop iteration."""
+    ) -> Optional[TelemetryEvent]:
+        """Convenience: emit a TRACE_EVENT for a single loop iteration (L3)."""
         return self.emit(
             "TRACE_EVENT",
             task_id,
@@ -99,6 +115,7 @@ class TelemetryManager:
                 "score": score,
                 "output_preview": output_preview[:200],
             },
+            level=3,
         )
 
     def emit_status(
@@ -107,8 +124,8 @@ class TelemetryManager:
         phase: str,
         progress: float = 0.0,
         cost_usd: float = 0.0,
-    ) -> TelemetryEvent:
-        """Convenience: emit a STATUS_UPDATE event."""
+    ) -> Optional[TelemetryEvent]:
+        """Convenience: emit a STATUS_UPDATE event (L1)."""
         return self.emit(
             "STATUS_UPDATE",
             task_id,

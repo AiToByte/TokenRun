@@ -122,21 +122,18 @@ class ActorCriticLoop:
             start = time.time()
 
             # --- Dynamic model routing: escalate to higher tier if needed ---
-            current_provider = self._resolve_tier_provider(node, attempts)
-            if current_provider:
-                original_provider = self.actor.provider
-                self.actor.provider = current_provider
+            tier_provider = self._resolve_tier_provider(node, attempts)
+            actor_to_use = self.actor
+            if tier_provider:
+                # Create a temporary actor with the tier provider (no shared mutation)
+                actor_to_use = TaskActor(provider=tier_provider)
 
             # --- Actor phase (uses masked data) ---
-            actor_resp = await self.actor.generate(
+            actor_resp = await actor_to_use.generate(
                 template_str=node.actor_prompt_template,
                 data=safe_input,
                 feedback=feedback,
             )
-
-            # Restore original provider
-            if current_provider:
-                self.actor.provider = original_provider
 
             # Record actor token consumption
             if self.ledger:
@@ -160,7 +157,20 @@ class ActorCriticLoop:
             # --- Critic phase (only for llm_eval rules) ---
             eval_result: EvaluationResult
             if llm_rules:
-                eval_result = await self.critic.evaluate(
+                # Use node-specific critic if configured (local model strategy)
+                critic_to_use = self.critic
+                if node.loop_config.critic_model:
+                    from gateway.provider import LLMProvider as LP
+
+                    local_provider = LP(
+                        api_key=self.critic.provider._api_key,
+                        base_url=node.loop_config.critic_base_url
+                        or self.critic.provider.base_url,
+                        model_name=node.loop_config.critic_model,
+                    )
+                    critic_to_use = TaskCritic(provider=local_provider)
+
+                eval_result = await critic_to_use.evaluate(
                     task_name=node.name,
                     input_data=safe_input,
                     output_content=final_output,

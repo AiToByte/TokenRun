@@ -274,14 +274,19 @@ async def run_skill(skill_id: str) -> MissionStatus:
 
     load_dotenv()
 
-    # Find the skill file
+    # Find the skill file with path traversal protection
+    safe_id = Path(skill_id).name  # strip any directory components
     vault = Path("vault")
-    skill_file = vault / f"{skill_id}.trs"
+    skill_file = (vault / f"{safe_id}.trs").resolve()
+    if not str(skill_file).startswith(str(vault.resolve())):
+        raise HTTPException(403, "Access denied: invalid skill_id")
     if not skill_file.exists():
-        # Also check skills/library
-        skill_file = Path("skills/library") / f"{skill_id}.trs"
+        lib = Path("skills/library")
+        skill_file = (lib / f"{safe_id}.trs").resolve()
+        if not str(skill_file).startswith(str(lib.resolve())):
+            raise HTTPException(403, "Access denied: invalid skill_id")
     if not skill_file.exists():
-        raise HTTPException(404, f"Skill not found: {skill_id}")
+        raise HTTPException(404, f"Skill not found: {safe_id}")
 
     skill_data = json.loads(skill_file.read_text(encoding="utf-8"))
 

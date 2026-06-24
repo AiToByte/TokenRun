@@ -268,7 +268,7 @@ class TestTelemetryManager:
         assert events[0].data == {"key": "value"}
 
     def test_emit_step(self):
-        tm = TelemetryManager()
+        tm = TelemetryManager(level=3)  # L3 needed for trace events
         events = []
         tm.on_event(lambda e: events.append(e))
         tm.emit_step("t1", "node1", 1, True, 0.9, "output text")

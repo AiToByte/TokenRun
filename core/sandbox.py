@@ -8,8 +8,8 @@ filesystem access, and resource limits.
 
 from __future__ import annotations
 
+import ast
 import json
-import os
 import subprocess
 import sys
 import tempfile
@@ -18,21 +18,42 @@ from typing import Any, Dict, Optional
 
 __all__ = ["SandboxExecutor"]
 
+# Blocked module names (checked via AST, not string matching).
+_BLOCKED_MODULES = {
+    "socket",
+    "http",
+    "urllib",
+    "requests",
+    "httpx",
+    "aiohttp",
+    "subprocess",
+    "shlex",
+    "shutil",
+    "ctypes",
+    "multiprocessing",
+    "importlib",
+}
 
-# Blocked modules that could access network or sensitive resources.
-_BLOCKED_IMPORTS = [
-    "import socket",
-    "import http",
-    "import urllib",
-    "import requests",
-    "import httpx",
-    "import aiohttp",
-    "import subprocess",
-    "import shlex",
-    "import shutil",
-    "import ctypes",
-    "import multiprocessing",
-]
+
+def _check_blocked_imports(code: str) -> Optional[str]:
+    """Use AST to detect blocked imports. Returns error message or None."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return None  # let the subprocess report the syntax error
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                root_module = alias.name.split(".")[0]
+                if root_module in _BLOCKED_MODULES:
+                    return f"Security: module '{root_module}' is blocked"
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                root_module = node.module.split(".")[0]
+                if root_module in _BLOCKED_MODULES:
+                    return f"Security: module '{root_module}' is blocked"
+    return None
 
 
 class SandboxExecutor:
@@ -82,16 +103,16 @@ class SandboxExecutor:
         dict
             ``{"passed": bool, "score": float, "output": str, "error": str}``
         """
-        # Security check: block dangerous imports
+        # Security check: AST-based blocked import detection
         if not self.allow_network:
-            for blocked in _BLOCKED_IMPORTS:
-                if blocked in code:
-                    return {
-                        "passed": False,
-                        "score": 0.0,
-                        "output": "",
-                        "error": f"Security: {blocked.split()[-1]} module is blocked",
-                    }
+            block_reason = _check_blocked_imports(code)
+            if block_reason:
+                return {
+                    "passed": False,
+                    "score": 0.0,
+                    "output": "",
+                    "error": block_reason,
+                }
 
         # Build script with variable injection
         var_lines = ""
@@ -152,17 +173,17 @@ except Exception as e:
             return {"passed": False, "score": 0.0, "output": "", "error": str(exc)}
 
     def _restricted_env(self) -> Dict[str, str]:
-        """Build a restricted environment variable set."""
+        """Build a restricted environment variable set.
+
+        PATH is restricted to only the Python interpreter directory
+        to prevent execution of arbitrary system binaries.
+        """
+        python_dir = str(Path(sys.executable).parent)
         env = {
-            "PATH": os.environ.get("PATH", ""),
-            "PYTHONPATH": os.environ.get("PYTHONPATH", ""),
-            "HOME": os.environ.get("HOME", "/tmp"),
+            "PATH": python_dir,
+            "HOME": "/tmp",
             "TMPDIR": tempfile.gettempdir(),
         }
-        # Remove any cloud credentials or sensitive vars
-        for key in list(env.keys()):
-            if any(s in key.upper() for s in ["KEY", "TOKEN", "SECRET", "PASSWORD"]):
-                del env[key]
         return env
 
     @staticmethod

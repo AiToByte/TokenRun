@@ -64,15 +64,41 @@ class PrivacyRedactor:
     # ------------------------------------------------------------------
 
     def mask(self, text: str) -> str:
-        """Replace sensitive values with reversible placeholders."""
-        masked = text
+        """Replace sensitive values with reversible placeholders.
+
+        All patterns are matched first, then replacements are applied
+        in a single pass (longest match first) to avoid interference
+        between overlapping patterns.
+        """
+        # Phase 1: collect all matches across all patterns
+        all_matches: List[tuple[int, int, str, str]] = []  # (start, end, label, value)
         for label, pattern in self._patterns.items():
             if label not in self._active_labels:
                 continue
-            for match in sorted(set(pattern.findall(masked)), key=len, reverse=True):
-                placeholder = self._get_or_create_placeholder(label, match)
-                masked = masked.replace(match, placeholder)
-        return masked
+            for match in pattern.finditer(text):
+                all_matches.append((match.start(), match.end(), label, match.group()))
+
+        if not all_matches:
+            return text
+
+        # Sort by start position, then by length descending (longest match wins)
+        all_matches.sort(key=lambda m: (m[0], -(m[1] - m[0])))
+
+        # Phase 2: resolve overlaps (keep non-overlapping matches)
+        filtered: List[tuple[int, int, str, str]] = []
+        last_end = 0
+        for start, end, label, value in all_matches:
+            if start >= last_end:
+                filtered.append((start, end, label, value))
+                last_end = end
+
+        # Phase 3: apply replacements in reverse order (to preserve positions)
+        result = text
+        for start, end, label, value in reversed(filtered):
+            placeholder = self._get_or_create_placeholder(label, value)
+            result = result[:start] + placeholder + result[end:]
+
+        return result
 
     def unmask(self, text: str) -> str:
         """Restore placeholders back to original values."""

@@ -180,6 +180,7 @@ class TROrchestrator:
         self,
         data_stream: List[str],
         priority: Priority = Priority.NORMAL,
+        cache_aware: bool = True,
     ) -> List[Dict[str, Any]]:
         """Execute the full production phase across all workflow nodes.
 
@@ -190,6 +191,8 @@ class TROrchestrator:
         priority:
             Task priority. LOW priority tasks may be routed to Batch API
             for cost savings when a CostScheduler is configured.
+        cache_aware:
+            If True, sort data by prefix to maximize prompt cache hits.
         """
         if self.ledger.is_fused:
             print("❌ 账本已熔断，无法开启全量生产。")
@@ -205,6 +208,11 @@ class TROrchestrator:
                 print("🚨 [指纹校验] 检测到逻辑变动！请重新采样以确认质量。")
                 return []
             print("✅ [指纹校验] 配置一致性确认。")
+
+        # --- Context caching: sort by prefix for cache-friendly ordering ---
+        if cache_aware and len(data_stream) > 10:
+            data_stream = self._sort_for_cache(data_stream)
+            print(f"📦 [缓存优化] 已按前缀排序 {len(data_stream)} 条数据")
 
         # --- Priority-based routing ---
         if priority == Priority.LOW:
@@ -301,6 +309,57 @@ class TROrchestrator:
         return order
 
     # ------------------------------------------------------------------
+    # Context caching & spot-check
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _sort_for_cache(data: List[str]) -> List[str]:
+        """Sort data by first 50 chars to maximize prompt cache hits.
+
+        Items with similar prefixes will be processed consecutively,
+        allowing the LLM provider to reuse cached context.
+        """
+        return sorted(data, key=lambda x: x[:50])
+
+    async def spot_check(
+        self, results: List[Dict[str, Any]], sample_rate: float = 0.05
+    ) -> List[Dict[str, Any]]:
+        """Randomly sample results for human review.
+
+        Parameters
+        ----------
+        results:
+            Mission results to sample from.
+        sample_rate:
+            Fraction of results to sample (default 5%).
+
+        Returns
+        -------
+        list[dict]
+            Sampled results flagged for review.
+        """
+        import random
+
+        count = max(1, int(len(results) * sample_rate))
+        sampled = random.sample(results, min(count, len(results)))
+
+        for item in sampled:
+            item["spot_check"] = True
+
+        if self.telemetry and sampled:
+            self.telemetry.emit(
+                "SPOT_CHECK",
+                "system",
+                {
+                    "sampled_count": len(sampled),
+                    "total_count": len(results),
+                    "message": f"已抽取 {len(sampled)} 条结果进行人工复核",
+                },
+            )
+
+        return sampled
+
+    # ------------------------------------------------------------------
     # Skill resolution
     # ------------------------------------------------------------------
 
@@ -348,6 +407,15 @@ class TROrchestrator:
         batch: List[str],
         node_override: Optional[TaskNode] = None,
     ) -> List[Dict[str, Any]]:
+        # --- Replay signal: apply once before dispatching all tasks ---
+        if self._replay_event.is_set():
+            async with self._state_lock:
+                if self._replay_prompt and self.runfile.workflow:
+                    node = node_override or self.runfile.workflow[0]
+                    node.actor_prompt_template = self._replay_prompt
+                    self._replay_prompt = None
+                self._replay_event.clear()
+
         tasks = [
             self._bounded_execute(item, node_override=node_override) for item in batch
         ]
@@ -360,14 +428,6 @@ class TROrchestrator:
     ) -> Dict[str, Any]:
         # --- Wait if paused ---
         await self._pause_event.wait()
-
-        # --- Replay signal: check if a replay was requested ---
-        if self._replay_event.is_set():
-            if self._replay_prompt and self.runfile.workflow:
-                node = node_override or self.runfile.workflow[0]
-                node.actor_prompt_template = self._replay_prompt
-                self._replay_prompt = None
-            self._replay_event.clear()
 
         # --- Quality circuit breaker ---
         if self._quality_halted:
@@ -519,6 +579,9 @@ class TROrchestrator:
 
                 return result
             except BudgetExceededError:
+                # Halt all remaining tasks immediately
+                async with self._state_lock:
+                    self._quality_halted = True
                 return {
                     "status": "budget_exceeded",
                     "final_output": None,
