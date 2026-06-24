@@ -79,6 +79,10 @@ class TROrchestrator:
         # --- Drift action ---
         self.drift_action = drift_action
 
+        # --- Replay signal ---
+        self._replay_event = asyncio.Event()
+        self._replay_prompt: Optional[str] = None
+
         # --- Pause/Resume state ---
         self._pause_event = asyncio.Event()
         self._pause_event.set()  # not paused initially
@@ -137,6 +141,19 @@ class TROrchestrator:
         self._is_paused = False
         self._pause_event.set()
         print("▶️ [编排器] 执行已恢复。")
+
+    def request_replay(self, new_prompt: Optional[str] = None) -> None:
+        """Signal a replay request from the API layer.
+
+        Parameters
+        ----------
+        new_prompt:
+            If provided, the orchestrator will switch to this prompt
+            for subsequent executions.
+        """
+        self._replay_prompt = new_prompt
+        self._replay_event.set()
+        print("🔄 [编排器] 重放信号已发送。")
 
     # ------------------------------------------------------------------
     # Public API
@@ -435,6 +452,26 @@ class TROrchestrator:
                                 )
                             return {
                                 "status": "drift_halted",
+                                "final_output": result.get("final_output"),
+                                "history": result.get("history", []),
+                            }
+
+                        # --- Drift auto-resample ---
+                        if self.drift_action == "resample":
+                            self.pause()
+                            if self.telemetry:
+                                self.telemetry.emit(
+                                    "DRIFT_RESAMPLE",
+                                    "system",
+                                    {
+                                        "message": f"漂移检测触发自动重采样: {alert}",
+                                    },
+                                )
+                            print(
+                                "🔄 [漂移检测] 自动重采样已触发，执行已暂停等待确认。"
+                            )
+                            return {
+                                "status": "drift_resample",
                                 "final_output": result.get("final_output"),
                                 "history": result.get("history", []),
                             }

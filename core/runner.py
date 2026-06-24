@@ -168,6 +168,18 @@ class ActorCriticLoop:
                 )
                 # Merge programmatic scores into LLM scores
                 eval_result.scores.update(prog_scores)
+
+                # --- Consensus validation: multi-model voting ---
+                consensus_models = node.loop_config.consensus_models
+                if consensus_models:
+                    eval_result = await self._run_consensus(
+                        eval_result,
+                        consensus_models,
+                        node,
+                        safe_input,
+                        final_output,
+                        llm_rules,
+                    )
             else:
                 # No LLM rules — build result from programmatic checks only
                 eval_result = EvaluationResult(
@@ -329,6 +341,73 @@ class ActorCriticLoop:
         # Use the last tier if all escalation thresholds exceeded
         last_tier = tiers[-1]
         return self._model_providers.get(last_tier.model)
+
+    # ------------------------------------------------------------------
+    # Consensus validation
+    # ------------------------------------------------------------------
+
+    async def _run_consensus(
+        self,
+        primary_result: EvaluationResult,
+        consensus_models: List[str],
+        node: TaskNode,
+        input_data: str,
+        output: str,
+        rules: List[ValidationRule],
+    ) -> EvaluationResult:
+        """Run consensus validation with multiple models.
+
+        Calls additional critics and takes majority vote on ``passed``.
+        The primary result's scores are merged with consensus scores.
+        """
+        threshold = node.loop_config.consensus_threshold
+        votes = [primary_result.passed]
+        all_scores = [primary_result.scores]
+
+        for model_name in consensus_models:
+            try:
+                # Create a temporary critic with the consensus model
+                from gateway.provider import LLMProvider
+
+                provider = LLMProvider(
+                    api_key=self.critic.provider._api_key,
+                    base_url=self.critic.provider.base_url,
+                    model_name=model_name,
+                )
+                consensus_critic = TaskCritic(provider=provider)
+                result = await consensus_critic.evaluate(
+                    task_name=node.name,
+                    input_data=input_data,
+                    output_content=output,
+                    rules=rules,
+                )
+                votes.append(result.passed)
+                all_scores.append(result.scores)
+                await provider.close()
+            except Exception:
+                # Consensus model failure — skip this vote
+                pass
+
+        # Majority vote
+        pass_count = sum(1 for v in votes if v)
+        consensus_passed = (pass_count / len(votes)) >= threshold
+
+        # Merge scores from all models
+        merged_scores: Dict[str, float] = {}
+        for scores in all_scores:
+            for k, v in scores.items():
+                if k in merged_scores:
+                    merged_scores[k] = max(merged_scores[k], v)
+                else:
+                    merged_scores[k] = v
+
+        primary_result.passed = consensus_passed
+        primary_result.scores = merged_scores
+        if not consensus_passed:
+            primary_result.critique = (
+                f"共识审计未通过 ({pass_count}/{len(votes)} 模型同意)"
+            )
+        return primary_result
 
     # ------------------------------------------------------------------
     # Programmatic validation

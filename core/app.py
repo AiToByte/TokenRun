@@ -87,10 +87,10 @@ class TokenRunApp:
     # Resource sensing
     # ------------------------------------------------------------------
 
-    def sense_resources(self) -> List[str]:
+    async def sense_resources(self) -> List[str]:
         """Auto-detect and load data from Runfile resources.
 
-        Supports local:// protocol. Falls back to demo data if no
+        Supports local:// and mcp:// protocols. Falls back to demo data if no
         resources are configured.
         """
         if not self.runfile.context:
@@ -105,19 +105,43 @@ class TokenRunApp:
                     self.telemetry.emit(
                         "RESOURCE_LOADED",
                         "system",
-                        {
-                            "source": res.uri,
-                            "count": len(items),
-                        },
+                        {"source": res.uri, "count": len(items)},
                     )
                     return items
                 self.telemetry.emit(
                     "WARNING",
                     "system",
-                    {
-                        "message": f"目录 {path_str} 中无可读取的文本文件",
-                    },
+                    {"message": f"目录 {path_str} 中无可读取的文本文件"},
                 )
+
+            elif res.type.value == "mcp_tool":
+                # MCP Tool: call external MCP server to get data
+                try:
+                    from gateway.mcp_client import MCPClient
+
+                    server_url = res.uri.replace("mcp://", "http://")
+                    async with MCPClient(server_url) as client:
+                        tool_name = res.description or "list_data"
+                        result = await client.call_tool(tool_name, {})
+                        content = result.get("content", [])
+                        items = [
+                            c.get("text", "")
+                            for c in content
+                            if c.get("type") == "text"
+                        ]
+                        if items:
+                            self.telemetry.emit(
+                                "RESOURCE_LOADED",
+                                "system",
+                                {"source": res.uri, "count": len(items)},
+                            )
+                            return items
+                except Exception as exc:
+                    self.telemetry.emit(
+                        "WARNING",
+                        "system",
+                        {"message": f"MCP 工具调用失败 ({res.uri}): {exc}"},
+                    )
 
         return self._demo_data()
 
@@ -149,7 +173,7 @@ class TokenRunApp:
         self.telemetry.emit_status("system", "INIT")
 
         # Load data
-        data = self.sense_resources()
+        data = await self.sense_resources()
 
         # Sampling phase
         self.telemetry.emit_status("system", "SAMPLING")

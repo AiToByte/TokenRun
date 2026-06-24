@@ -45,14 +45,16 @@ class TestTokenRunApp:
         assert app.redactor is not None
         assert app.telemetry is not None
 
-    def test_sense_resources_demo_data(self, runfile, mock_providers):
+    @pytest.mark.asyncio
+    async def test_sense_resources_demo_data(self, runfile, mock_providers):
         actor_p, critic_p = mock_providers
         app = TokenRunApp(runfile, actor_p, critic_p)
-        data = app.sense_resources()
+        data = await app.sense_resources()
         assert len(data) == 3  # demo data has 3 items
         assert all(isinstance(d, str) for d in data)
 
-    def test_sense_resources_local_file(self, tmp_path, mock_providers):
+    @pytest.mark.asyncio
+    async def test_sense_resources_local_file(self, tmp_path, mock_providers):
         # Create a test file
         data_dir = tmp_path / "data"
         data_dir.mkdir()
@@ -72,11 +74,12 @@ class TestTokenRunApp:
         )
         actor_p, critic_p = mock_providers
         app = TokenRunApp(runfile, actor_p, critic_p)
-        data = app.sense_resources()
+        data = await app.sense_resources()
         assert len(data) == 1
         assert data[0] == "File content here"
 
-    def test_sense_resources_empty_dir_falls_back(self, tmp_path, mock_providers):
+    @pytest.mark.asyncio
+    async def test_sense_resources_empty_dir_falls_back(self, tmp_path, mock_providers):
         from core.models import Resource, ResourceType
         empty_dir = tmp_path / "empty"
         empty_dir.mkdir()
@@ -93,7 +96,7 @@ class TestTokenRunApp:
         )
         actor_p, critic_p = mock_providers
         app = TokenRunApp(runfile, actor_p, critic_p)
-        data = app.sense_resources()
+        data = await app.sense_resources()
         # Should fall back to demo data
         assert len(data) == 3
 
