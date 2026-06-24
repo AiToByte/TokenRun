@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import base64
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any, Dict, Generator, Optional
 
 __all__ = ["VideoGateway"]
 

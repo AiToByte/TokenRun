@@ -6,12 +6,15 @@ import asyncio
 import json
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from core.models import Runfile
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -36,7 +39,8 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 
 _active_missions: Dict[str, Dict[str, Any]] = {}
-_ws_clients: List[WebSocket] = []
+_ws_clients: List[WebSocket] = {}
+_mission_events: Dict[str, asyncio.Event] = {}  # mission_id → approval event
 
 # ---------------------------------------------------------------------------
 # Request / Response models
@@ -118,6 +122,7 @@ async def create_mission(req: MissionCreate) -> MissionStatus:
         "runfile_path": req.runfile_path,
         "sample_only": req.sample_only,
     }
+    _mission_events[mission_id] = asyncio.Event()  # approval signal
 
     # Broadcast status
     await _broadcast({
@@ -167,6 +172,10 @@ async def approve_mission(mission_id: str, req: ApprovalRequest) -> Dict[str, st
     if req.action == "approve":
         m["status"] = "running"
         m["phase"] = "FULL_PRODUCTION"
+        # Signal the background task to continue
+        event = _mission_events.get(mission_id)
+        if event:
+            event.set()
         await _broadcast({"type": "STATUS_UPDATE", "mission_id": mission_id, "phase": "APPROVED"})
         return {"status": "approved"}
 
@@ -238,7 +247,6 @@ async def list_skills() -> List[SkillInfo]:
 @app.post("/skills/{skill_id}/run")
 async def run_skill(skill_id: str) -> MissionStatus:
     """Run a solidified skill — load locked params and start a new mission."""
-    from core.app import TokenRunApp
     from core.models import Runfile
     from dotenv import load_dotenv
     load_dotenv()
@@ -482,7 +490,31 @@ async def _run_mission_bg(mission_id: str, req: MissionCreate) -> None:
             m["progress"] = 0.1
             await _broadcast({"type": "STATUS_UPDATE", "mission_id": mission_id, "phase": "SAMPLING", "progress": 0.1})
 
-            result = await app.run_mission(sample_only=req.sample_only, auto_approve=True)
+            # Approval callback: wait for API approve_mission to signal
+            approval_event = _mission_events.get(mission_id)
+
+            async def approval_gate(_report):
+                m["phase"] = "AWAITING_APPROVAL"
+                m["status"] = "awaiting_approval"
+                await _broadcast({
+                    "type": "APPROVAL_REQUIRED",
+                    "mission_id": mission_id,
+                    "phase": "AWAITING_APPROVAL",
+                    "report": _report,
+                })
+                # Wait for the API endpoint to call event.set()
+                if approval_event:
+                    await approval_event.wait()
+                return True
+
+            # Run with approval gate
+            if req.sample_only:
+                result = await app.run_mission(sample_only=True, auto_approve=True)
+            else:
+                result = await app.run_mission(
+                    auto_approve=False,
+                    approval_callback=approval_gate,
+                )
 
             m["status"] = "completed"
             m["phase"] = "DONE"

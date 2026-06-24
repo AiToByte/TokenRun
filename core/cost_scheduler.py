@@ -12,12 +12,10 @@ are available.
 
 from __future__ import annotations
 
-import asyncio
-import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from core.task_queue import Priority, TaskQueue
-from gateway.batch_provider import BatchProvider, BatchRequest
+from gateway.batch_provider import BatchProvider
 
 __all__ = ["CostScheduler", "ExecutionPlan"]
 

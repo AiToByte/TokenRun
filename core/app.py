@@ -8,13 +8,11 @@ This is the "main control console" described in the integration design.
 from __future__ import annotations
 
 import asyncio
-import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from core.actor import TaskActor
 from core.critic import TaskCritic
-from core.drift_detector import DriftDetector
 from core.ledger import TokenLedger
 from core.models import Runfile
 from core.orchestrator import TROrchestrator
@@ -122,8 +120,20 @@ class TokenRunApp:
         self,
         sample_only: bool = False,
         auto_approve: bool = False,
+        approval_callback: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Execute a full mission lifecycle.
+
+        Parameters
+        ----------
+        sample_only:
+            Only run sampling phase.
+        auto_approve:
+            Skip approval gate entirely.
+        approval_callback:
+            Optional async callable invoked between sampling and production.
+            If provided, replaces the default ``input()`` blocking call.
+            Should return ``True`` to approve or ``False`` to abort.
 
         Returns a summary dict with results, traces, and skill info.
         """
@@ -171,9 +181,14 @@ class TokenRunApp:
             )
             self.telemetry.emit_sample_report("system", report)
 
-            # Wait for approval (CLI mode)
+            # Wait for approval
             self.telemetry.emit_status("system", "AWAITING_APPROVAL")
-            await asyncio.get_running_loop().run_in_executor(None, input)
+            if approval_callback:
+                approved = await approval_callback(report)
+                if not approved:
+                    return {"phase": "aborted", "results": sample_results}
+            else:
+                await asyncio.get_running_loop().run_in_executor(None, input)
             self.sampling_manager.approve()
 
         # Full production

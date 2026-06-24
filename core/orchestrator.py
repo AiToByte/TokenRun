@@ -14,7 +14,6 @@ from collections import deque
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from core.cost_scheduler import CostScheduler
 from core.drift_detector import DriftAlert, DriftDetector
 from core.ledger import BudgetExceededError, TokenLedger
 from core.models import Runfile, TaskNode, TaskTrace
@@ -22,6 +21,7 @@ from core.prompt_lineage import PromptLineageManager
 from core.runner import ActorCriticLoop
 from core.self_healer import SelfHealer
 from core.task_queue import Priority
+from core.telemetry import TelemetryManager
 
 __all__ = ["TROrchestrator"]
 
@@ -53,6 +53,7 @@ class TROrchestrator:
         concurrency: int = 5,
         drift_detector: Optional[DriftDetector] = None,
         self_healer: Optional[SelfHealer] = None,
+        telemetry: Optional[TelemetryManager] = None,
     ) -> None:
         self.runfile = runfile
         self.engine = loop_engine
@@ -62,6 +63,7 @@ class TROrchestrator:
         self.lineage = PromptLineageManager()
         self.drift_detector = drift_detector
         self.self_healer = self_healer
+        self.telemetry = telemetry
         self._total_iterations = 0  # for max_loop_count enforcement
 
         # --- Pause/Resume state ---
@@ -173,7 +175,7 @@ class TROrchestrator:
 
         # --- Priority-based routing ---
         if priority == Priority.LOW:
-            print(f"⏳ [低优先级] 任务将使用成本优化模式执行...")
+            print("⏳ [低优先级] 任务将使用成本优化模式执行...")
 
         self.results = []
         print(f"\U0001f3ed [生产阶段] 开始全量处理 {len(data_stream)} 条数据...")
@@ -354,12 +356,34 @@ class TROrchestrator:
                         print(f"  {alert}")
                         result["drift_alert"] = str(alert)
 
-                # --- Self-healer: record critiques for pattern analysis ---
+                # --- Self-healer: record critiques and check for healing ---
                 if self.self_healer and result.get("history"):
                     for h in result["history"]:
                         critique = h.get("critique")
                         if critique:
                             self.self_healer.record_critique(critique)
+
+                    # Check if healing is needed after recording critiques
+                    suggestion = self.self_healer.check_healing_needed()
+                    if suggestion and self.telemetry:
+                        self.telemetry.emit("HEALING_SUGGESTION", "system", {
+                            "pattern": suggestion.critique_pattern,
+                            "frequency": suggestion.frequency,
+                            "confidence": suggestion.confidence,
+                            "message": f"检测到重复批评模式 ({suggestion.frequency}次): {suggestion.critique_pattern}。建议优化 Prompt。",
+                        })
+
+                # --- Telemetry: emit iteration event ---
+                if self.telemetry and result.get("history"):
+                    last = result["history"][-1]
+                    self.telemetry.emit_step(
+                        task_id=node.id,
+                        node_id=node.id,
+                        iteration=last.get("iteration", 0),
+                        passed=last.get("passed", False),
+                        score=last.get("score", 0.0),
+                        output_preview=last.get("output", "")[:200],
+                    )
 
                 return result
             except BudgetExceededError:

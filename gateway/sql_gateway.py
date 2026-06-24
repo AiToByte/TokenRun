@@ -74,7 +74,6 @@ class SQLGateway:
         into the TokenRun pipeline.
         """
         import json
-        from sqlalchemy import text
 
         rows = self.query(sql, params, limit=10000)
         return [json.dumps(row, ensure_ascii=False, default=str) for row in rows]

@@ -113,7 +113,7 @@ async def run_mission(runfile_path: str, sample_only: bool = False) -> None:
     load_dotenv()
 
     print(f"\n{'='*60}")
-    print(f"  TokenRun — 工业级 AI 任务执行引擎")
+    print("  TokenRun — 工业级 AI 任务执行引擎")
     print(f"{'='*60}\n")
 
     # 1. Load Runfile
@@ -189,7 +189,7 @@ async def run_mission(runfile_path: str, sample_only: bool = False) -> None:
                 print(f"   样本快照: {fp.snapshot}")
 
         if sample_only:
-            print(f"\n⏸️ 采样完成（--sample-only 模式）。")
+            print("\n⏸️ 采样完成（--sample-only 模式）。")
             print(f"  账本: {ledger.get_summary()}")
             return
 
@@ -203,7 +203,7 @@ async def run_mission(runfile_path: str, sample_only: bool = False) -> None:
                 sampling_ratio=sampling_ratio,
                 current_cost_usd=ledger.report.total_cost_usd,
             )
-            print(f"\n⏸️ 采样报告:")
+            print("\n⏸️ 采样报告:")
             print(f"   成功率: {report['summary']['success_count']}/{report['summary']['sample_count']}")
             print(f"   平均质量: {report['summary']['average_quality_score']}")
             econ = report.get("economics", {})
@@ -211,7 +211,7 @@ async def run_mission(runfile_path: str, sample_only: bool = False) -> None:
                 print(f"   采样成本: ${econ.get('sampling_cost_usd', 0):.4f}")
                 print(f"   预估总成本: ${econ.get('estimated_total_cost_usd', 0):.4f}")
                 print(f"   预估成功数: {econ.get('estimated_success_count', 0)}")
-            print(f"   等待审批... (按 Enter 继续全量执行)")
+            print("   等待审批... (按 Enter 继续全量执行)")
             await asyncio.get_running_loop().run_in_executor(None, input)
             sm.approve()
 
@@ -251,7 +251,7 @@ async def run_mission(runfile_path: str, sample_only: bool = False) -> None:
 
         # 11. Cleanup: clear privacy vault
         redactor.clear_vault()
-        print(f"\n🧹 隐私映射表已清空。任务结束。")
+        print("\n🧹 隐私映射表已清空。任务结束。")
 
     finally:
         # Always close HTTP clients

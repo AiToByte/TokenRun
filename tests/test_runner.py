@@ -357,7 +357,8 @@ class TestFingerprint:
         )
         assert fp.model_id == "gpt-4o"
         assert len(fp.prompt_hash) == 16
-        assert fp.parameters == {"temperature": 0.1}
+        assert fp.parameters["temperature"] == 0.1
+        assert fp.parameters["seed"] is None
 
     def test_verify_fingerprint_match(self):
         fp = ActorCriticLoop.compute_fingerprint(

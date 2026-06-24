@@ -8,7 +8,6 @@ generated text.
 
 from __future__ import annotations
 
-from typing import Optional
 
 from jinja2 import Template, TemplateSyntaxError, UndefinedError
 

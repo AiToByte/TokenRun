@@ -9,7 +9,7 @@ threshold, raises an alert indicating model drift.
 from __future__ import annotations
 
 import hashlib
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from core.actor import TaskActor
 

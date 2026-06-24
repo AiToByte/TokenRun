@@ -471,15 +471,25 @@ class ActorCriticLoop:
         parameters: Dict[str, Any],
         sample_output: str = "",
     ) -> Fingerprint:
-        """Compute an execution fingerprint from current configuration."""
+        """Compute an execution fingerprint from current configuration.
+
+        Includes model_id, prompt hash, temperature, and seed for
+        deterministic verification.
+        """
         prompt_hash = hashlib.sha256(prompt_template.encode()).hexdigest()[:16]
+        # Include temperature and seed for finer granularity
+        fp_params = {
+            "temperature": parameters.get("temperature", 0.1),
+            "seed": parameters.get("seed"),
+            "top_p": parameters.get("top_p"),
+        }
         snapshot = None
         if sample_output:
             snapshot = hashlib.sha256(sample_output.encode()).hexdigest()[:16]
         return Fingerprint(
             model_id=model_id,
             prompt_hash=prompt_hash,
-            parameters=parameters,
+            parameters=fp_params,
             snapshot=snapshot,
         )
 
@@ -500,4 +510,6 @@ class ActorCriticLoop:
         return (
             current.model_id == locked.model_id
             and current.prompt_hash == locked.prompt_hash
+            and current.parameters.get("temperature") == locked.parameters.get("temperature")
+            and current.parameters.get("seed") == locked.parameters.get("seed")
         )

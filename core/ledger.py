@@ -9,6 +9,7 @@ the entire task immediately (no silent overspend).
 from __future__ import annotations
 
 import time
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
@@ -83,6 +84,7 @@ class TokenLedger:
         self.report = UsageReport()
         self.value = ValueMetrics()
         self._fused = False
+        self._lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Public API
@@ -118,32 +120,31 @@ class TokenLedger:
         BudgetExceededError
             If cumulative cost reaches ``budget_usd``.
         """
-        pricing = self._pricing.get(model_name)
-        if pricing is None:
-            # Unknown model: use conservative fallback pricing to prevent
-            # zero-cost bypass.  Log once per unique model.
-            pricing = _FALLBACK_PRICING
+        with self._lock:
+            pricing = self._pricing.get(model_name)
+            if pricing is None:
+                pricing = _FALLBACK_PRICING
 
-        cost = (
-            prompt_tokens / 1000 * pricing["prompt"]
-            + completion_tokens / 1000 * pricing["completion"]
-        )
+            cost = (
+                prompt_tokens / 1000 * pricing["prompt"]
+                + completion_tokens / 1000 * pricing["completion"]
+            )
 
-        if role == "actor":
-            self.report.actor_prompt_tokens += prompt_tokens
-            self.report.actor_completion_tokens += completion_tokens
-        else:
-            self.report.critic_prompt_tokens += prompt_tokens
-            self.report.critic_completion_tokens += completion_tokens
+            if role == "actor":
+                self.report.actor_prompt_tokens += prompt_tokens
+                self.report.actor_completion_tokens += completion_tokens
+            else:
+                self.report.critic_prompt_tokens += prompt_tokens
+                self.report.critic_completion_tokens += completion_tokens
 
-        self.report.total_cost_usd += cost
-        self.report.call_count += 1
-        self.report.elapsed_seconds = time.time() - self.report.start_time
+            self.report.total_cost_usd += cost
+            self.report.call_count += 1
+            self.report.elapsed_seconds = time.time() - self.report.start_time
 
-        # Check budget AFTER recording — always keep accurate accounting.
-        if not self._fused and self.report.total_cost_usd >= self.budget_usd:
-            self._fused = True
-            raise BudgetExceededError(
+            # Check budget AFTER recording — always keep accurate accounting.
+            if not self._fused and self.report.total_cost_usd >= self.budget_usd:
+                self._fused = True
+                raise BudgetExceededError(
                 f"\U0001f6a8 [熔断] 已达到预算上限 ${self.budget_usd:.4f}。"
                 f" 当前消耗 ${self.report.total_cost_usd:.4f}。任务紧急停止。"
             )
@@ -192,7 +193,7 @@ class TokenLedger:
 
         lines = [
             f"\n{'='*50}",
-            f"  Proof of Value — 任务价值报告",
+            "  Proof of Value — 任务价值报告",
             f"{'='*50}",
             f"  Token 消耗: {total_tokens:,} (Actor: {actor_total:,}, Critic: {critic_total:,})",
             f"  费用: ${self.report.total_cost_usd:.4f} / ${self.budget_usd:.4f}",
@@ -209,7 +210,7 @@ class TokenLedger:
 
         if skill_id:
             lines.append(f"  固化技能: {skill_id}")
-            lines.append(f"  下次运行预计成本降低 15%（逻辑已锁定，重试率将降低）")
+            lines.append("  下次运行预计成本降低 15%（逻辑已锁定，重试率将降低）")
 
         lines.append(f"{'='*50}")
         return "\n".join(lines)

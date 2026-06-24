@@ -7,7 +7,7 @@ Requires ``boto3`` to be installed.  Supports any S3-compatible endpoint
 
 from __future__ import annotations
 
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any, Dict, Generator, Optional
 
 __all__ = ["S3Gateway"]
 

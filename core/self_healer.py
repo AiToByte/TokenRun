@@ -9,10 +9,8 @@ PromptVersion for user approval.
 
 from __future__ import annotations
 
-import hashlib
-import time
 from collections import Counter
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from core.models import PromptVersion, TaskNode
 from core.prompt_lineage import PromptLineageManager
