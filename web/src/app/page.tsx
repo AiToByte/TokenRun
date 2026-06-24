@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { fetchMissions, fetchSkills } from "@/lib/api";
+import { fetchMissions, fetchSkills } from "../lib/api";
 
 interface Mission {
   mission_id: string;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { fetchSkills, runSkill } from "@/lib/api";
+import { fetchSkills, runSkill } from "../../lib/api";
 
 interface Skill {
   skill_id: string;

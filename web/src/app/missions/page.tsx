@@ -8,8 +8,8 @@ import {
   reviseMission,
   fetchTraces,
   fetchLineage,
-} from "@/lib/api";
-import { connectWebSocket } from "@/lib/api";
+} from "../../lib/api";
+import { connectWebSocket } from "../../lib/api";
 
 interface Mission {
   mission_id: string;
