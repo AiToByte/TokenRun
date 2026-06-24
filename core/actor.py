@@ -9,7 +9,8 @@ generated text.
 from __future__ import annotations
 
 
-from jinja2 import Template, TemplateSyntaxError, UndefinedError
+from jinja2 import TemplateSyntaxError, UndefinedError
+from jinja2.sandbox import SandboxedEnvironment
 
 from gateway.provider import LLMProvider, LLMResponse
 
@@ -59,7 +60,9 @@ class TaskActor:
             If the Jinja2 template has syntax errors or undefined variables.
         """
         try:
-            rendered = Template(template_str).render(data=data)
+            env = SandboxedEnvironment()
+            template = env.from_string(template_str)
+            rendered = template.render(data=data)
         except (TemplateSyntaxError, UndefinedError) as exc:
             raise ValueError(f"Prompt 模板渲染失败: {exc}") from exc
 

@@ -29,7 +29,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -39,8 +39,9 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 
 _active_missions: Dict[str, Dict[str, Any]] = {}
-_ws_clients: List[WebSocket] = {}
+_ws_clients: List[WebSocket] = []
 _mission_events: Dict[str, asyncio.Event] = {}  # mission_id → approval event
+_ws_subscriptions: Dict[str, List[WebSocket]] = {}  # mission_id → subscribers
 
 # ---------------------------------------------------------------------------
 # Request / Response models
@@ -110,7 +111,14 @@ async def list_missions() -> List[MissionStatus]:
 @app.post("/missions", response_model=MissionStatus)
 async def create_mission(req: MissionCreate) -> MissionStatus:
     """Create and start a new mission."""
-    if not Path(req.runfile_path).exists():
+    # Path traversal protection
+    safe_path = Path(req.runfile_path).resolve()
+    allowed_root = Path("runfiles").resolve()
+    if not str(safe_path).startswith(str(allowed_root)):
+        raise HTTPException(
+            403, "Access denied: runfile must be in runfiles/ directory"
+        )
+    if not safe_path.exists():
         raise HTTPException(404, f"Runfile not found: {req.runfile_path}")
 
     mission_id = f"mission-{uuid.uuid4().hex[:8]}"
@@ -135,8 +143,9 @@ async def create_mission(req: MissionCreate) -> MissionStatus:
         }
     )
 
-    # Start mission in background
-    asyncio.create_task(_run_mission_bg(mission_id, req))
+    # Start mission in background (store reference to prevent GC)
+    task = asyncio.create_task(_run_mission_bg(mission_id, req))
+    task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
     return MissionStatus(
         mission_id=mission_id,
@@ -415,6 +424,71 @@ async def export_fine_tune(
         raise HTTPException(400, str(e))
 
 
+@app.get("/missions/{mission_id}/version-tree")
+async def get_version_tree(mission_id: str) -> Dict[str, Any]:
+    """Get prompt version lineage as a tree structure for visualization."""
+    m = _active_missions.get(mission_id)
+    if not m:
+        raise HTTPException(404, "Mission not found")
+
+    lineage = m.get("lineage", [])
+    if not lineage:
+        return {"nodes": [], "edges": []}
+
+    nodes = []
+    edges = []
+    for v in lineage:
+        nodes.append(
+            {
+                "id": v.get("version_id", ""),
+                "template_preview": v.get("template", "")[:80],
+                "change_log": v.get("change_log", ""),
+                "stats": v.get("stats", {}),
+            }
+        )
+        if v.get("parent_id"):
+            edges.append(
+                {
+                    "from": v["parent_id"],
+                    "to": v.get("version_id", ""),
+                }
+            )
+
+    return {"nodes": nodes, "edges": edges}
+
+
+@app.post("/missions/{mission_id}/replay")
+async def replay_from_iteration(
+    mission_id: str,
+    iteration: int = 0,
+    new_prompt: Optional[str] = None,
+) -> Dict[str, str]:
+    """Replay a mission from a specific iteration, optionally with a new prompt."""
+    m = _active_missions.get(mission_id)
+    if not m:
+        raise HTTPException(404, "Mission not found")
+
+    result = m.get("result", {})
+    if not result:
+        raise HTTPException(400, "No results available for replay")
+
+    m["replay_request"] = {
+        "from_iteration": iteration,
+        "new_prompt": new_prompt,
+    }
+    m["phase"] = "REPLAYING"
+
+    await _broadcast(
+        {
+            "type": "REPLAY_REQUESTED",
+            "mission_id": mission_id,
+            "from_iteration": iteration,
+        }
+    )
+
+    return {"status": "replay_queued", "from_iteration": str(iteration)}
+
+
 # ---------------------------------------------------------------------------
 # WebSocket
 # ---------------------------------------------------------------------------
@@ -422,27 +496,72 @@ async def export_fine_tune(
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket) -> None:
-    """Real-time event stream for the Cockpit UI."""
+    """Real-time event stream for the Cockpit UI.
+
+    Supports Pub/Sub: client can send {"action": "subscribe", "mission_id": "..."}
+    to receive only events for that mission.
+    """
     await ws.accept()
     _ws_clients.append(ws)
+    subscribed_mission: Optional[str] = None
     try:
         while True:
-            # Keep alive; client can send ping/pong
-            await ws.receive_text()
+            data = await ws.receive_text()
+            try:
+                msg = json.loads(data)
+                action = msg.get("action")
+                if action == "subscribe":
+                    mission_id = msg.get("mission_id")
+                    if mission_id:
+                        if mission_id not in _ws_subscriptions:
+                            _ws_subscriptions[mission_id] = []
+                        _ws_subscriptions[mission_id].append(ws)
+                        subscribed_mission = mission_id
+                        await ws.send_json(
+                            {"type": "subscribed", "mission_id": mission_id}
+                        )
+                elif action == "unsubscribe":
+                    if subscribed_mission and subscribed_mission in _ws_subscriptions:
+                        _ws_subscriptions[subscribed_mission] = [
+                            c for c in _ws_subscriptions[subscribed_mission] if c != ws
+                        ]
+                        subscribed_mission = None
+            except json.JSONDecodeError:
+                pass  # ignore non-JSON messages
     except WebSocketDisconnect:
         _ws_clients.remove(ws)
+        if subscribed_mission and subscribed_mission in _ws_subscriptions:
+            _ws_subscriptions[subscribed_mission] = [
+                c for c in _ws_subscriptions[subscribed_mission] if c != ws
+            ]
 
 
 async def _broadcast(message: Dict[str, Any]) -> None:
-    """Send a message to all connected WebSocket clients."""
-    dead: List[WebSocket] = []
+    """Send a message to all connected WebSocket clients.
+
+    Also sends to mission-specific subscribers if mission_id is present.
+    """
+    dead: set = set()
+
+    # Broadcast to all global clients
     for ws in _ws_clients:
         try:
             await ws.send_json(message)
         except Exception:
-            dead.append(ws)
+            dead.add(ws)
+
+    # Send to mission-specific subscribers
+    mission_id = message.get("mission_id")
+    if mission_id and mission_id in _ws_subscriptions:
+        for ws in _ws_subscriptions[mission_id]:
+            try:
+                await ws.send_json(message)
+            except Exception:
+                dead.add(ws)
+
     for ws in dead:
-        _ws_clients.remove(ws)
+        if ws in _ws_clients:
+            _ws_clients.remove(ws)
 
 
 # ---------------------------------------------------------------------------

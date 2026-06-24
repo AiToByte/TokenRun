@@ -201,7 +201,11 @@ class TokenRunApp:
                 if not approved:
                     return {"phase": "aborted", "results": sample_results}
             else:
-                await asyncio.get_running_loop().run_in_executor(None, input)
+                response = await asyncio.get_running_loop().run_in_executor(
+                    None, lambda: input("  输入 'yes' 确认，其他内容取消: ")
+                )
+                if response.strip().lower() not in ("yes", "y", ""):
+                    return {"phase": "aborted", "results": sample_results}
             self.sampling_manager.approve()
 
         # Full production

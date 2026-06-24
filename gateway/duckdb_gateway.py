@@ -7,9 +7,12 @@ on large datasets without loading everything into memory.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional
 
 __all__ = ["DuckDBGateway"]
+
+_SAFE_IDENTIFIER = re.compile(r"^[a-zA-Z_]\w*$")
 
 
 class DuckDBGateway:
@@ -40,14 +43,22 @@ class DuckDBGateway:
 
     def register_csv(self, name: str, path: str) -> None:
         """Register a CSV file as a virtual table."""
+        if not _SAFE_IDENTIFIER.match(name):
+            raise ValueError(f"Invalid table name: {name}")
+        safe_path = path.replace("'", "''")
         self._conn.execute(
-            f"CREATE TABLE {name} AS SELECT * FROM read_csv_auto('{path}')"
+            f'CREATE TABLE "{name}" AS SELECT * FROM read_csv_auto(?)',
+            [safe_path],
         )
 
     def register_parquet(self, name: str, path: str) -> None:
         """Register a Parquet file as a virtual table."""
+        if not _SAFE_IDENTIFIER.match(name):
+            raise ValueError(f"Invalid table name: {name}")
+        safe_path = path.replace("'", "''")
         self._conn.execute(
-            f"CREATE TABLE {name} AS SELECT * FROM read_parquet('{path}')"
+            f'CREATE TABLE "{name}" AS SELECT * FROM read_parquet(?)',
+            [safe_path],
         )
 
     def close(self) -> None:

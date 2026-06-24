@@ -189,6 +189,6 @@ class CostScheduler:
         # Assume 70% prompt, 30% completion
         prompt_tokens = int(tokens * 0.7)
         completion_tokens = int(tokens * 0.3)
-        return prompt_tokens / 1000 * pricing.get(
-            "prompt", 0.01
-        ) + completion_tokens / 1000 * pricing.get("completion", 0.03)
+        return (prompt_tokens / 1000 * pricing.get("prompt", 0.01)) + (
+            completion_tokens / 1000 * pricing.get("completion", 0.03)
+        )

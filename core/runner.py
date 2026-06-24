@@ -17,11 +17,7 @@ import asyncio
 import hashlib
 import json
 import re
-import subprocess
-import sys
-import tempfile
 import time
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from core.actor import TaskActor
@@ -402,46 +398,18 @@ class ActorCriticLoop:
 
     @staticmethod
     def _run_code_eval(test_code: str, output: str) -> tuple[bool, float]:
-        """Execute test code in a subprocess sandbox.
+        """Execute test code in a security-hardened sandbox.
 
         The test code can reference ``output`` as a string variable
         containing the Actor's output.  Returns (passed, score).
-
-        The subprocess is killed after 10 seconds to prevent hangs.
         """
-        # Use json.dumps to safely escape the output string
-        escaped_output = json.dumps(output)
-        script = (
-            "import sys, json\n"
-            f"output = {escaped_output}\n"
-            "try:\n"
-            f"    {test_code}\n"
-            "    print(json.dumps({'passed': True, 'score': 1.0}))\n"
-            "except AssertionError as e:\n"
-            "    print(json.dumps({'passed': False, 'score': 0.0, 'error': str(e)}))\n"
-            "except Exception as e:\n"
-            "    print(json.dumps({'passed': False, 'score': 0.0, 'error': str(e)}))\n"
+        from core.sandbox import SandboxExecutor
+
+        sandbox = SandboxExecutor(
+            timeout=10, allow_network=False, allow_file_write=False
         )
-        try:
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-                f.write(script)
-                f.flush()
-                temp_path = f.name
-
-            proc = subprocess.run(
-                [sys.executable, temp_path],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            Path(temp_path).unlink(missing_ok=True)
-
-            if proc.returncode == 0 and proc.stdout.strip():
-                result = json.loads(proc.stdout.strip())
-                return result.get("passed", False), result.get("score", 0.0)
-            return False, 0.0
-        except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
-            return False, 0.0
+        result = sandbox.execute_python(test_code, variables={"output": output})
+        return result.get("passed", False), result.get("score", 0.0)
 
     @staticmethod
     def _compute_weighted_score(

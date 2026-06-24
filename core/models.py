@@ -61,6 +61,7 @@ class ResourceType(str, Enum):
     SQL_QUERY = "sql_query"
     S3_OBJECT = "s3_object"
     API_ENDPOINT = "api_endpoint"
+    MCP_TOOL = "mcp_tool"
 
 
 class TaskStatus(str, Enum):
@@ -146,6 +147,8 @@ class LoopConfig(BaseModel):
     retry_delay: int = 1  # seconds
     score_weights: Dict[str, float] = Field(default_factory=dict)
     min_score: float = 0.85  # weighted score threshold to pass
+    consensus_models: List[str] = Field(default_factory=list)  # multi-model consensus
+    consensus_threshold: float = 0.5  # fraction of models that must agree
 
 
 class ModelTier(BaseModel):

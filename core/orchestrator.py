@@ -54,6 +54,9 @@ class TROrchestrator:
         drift_detector: Optional[DriftDetector] = None,
         self_healer: Optional[SelfHealer] = None,
         telemetry: Optional[TelemetryManager] = None,
+        quality_threshold: float = 0.6,
+        quality_window: int = 5,
+        drift_action: str = "halt",  # "warn" | "halt" | "resample"
     ) -> None:
         self.runfile = runfile
         self.engine = loop_engine
@@ -65,6 +68,16 @@ class TROrchestrator:
         self.self_healer = self_healer
         self.telemetry = telemetry
         self._total_iterations = 0  # for max_loop_count enforcement
+
+        # --- Quality circuit breaker ---
+        self.quality_threshold = quality_threshold
+        self.quality_window = quality_window
+        self._recent_scores: List[float] = []
+        self._quality_halted = False
+        self._state_lock = asyncio.Lock()  # protects shared mutable state
+
+        # --- Drift action ---
+        self.drift_action = drift_action
 
         # --- Pause/Resume state ---
         self._pause_event = asyncio.Event()
@@ -331,6 +344,14 @@ class TROrchestrator:
         # --- Wait if paused ---
         await self._pause_event.wait()
 
+        # --- Quality circuit breaker ---
+        if self._quality_halted:
+            return {
+                "status": "quality_halted",
+                "final_output": None,
+                "history": [],
+            }
+
         # --- max_loop_count enforcement ---
         max_loops = self.runfile.governance.max_loop_count
         if max_loops and self._total_iterations >= max_loops:
@@ -344,11 +365,47 @@ class TROrchestrator:
             node = node_override or self.runfile.workflow[0]
             try:
                 result = await self.engine.run(node, data)
-                # Track total iterations for max_loop_count
+                # Track shared state under lock
+                async with self._state_lock:
+                    if result.get("history"):
+                        self._total_iterations += len(result["history"])
+                    if result.get("trace"):
+                        self.results.append(result["trace"])
+
+                # --- Quality circuit breaker: track consecutive low scores ---
+                should_halt = False
                 if result.get("history"):
-                    self._total_iterations += len(result["history"])
-                if result.get("trace"):
-                    self.results.append(result["trace"])
+                    last_score = result["history"][-1].get("score", 0.0)
+                    async with self._state_lock:
+                        self._recent_scores.append(last_score)
+                        if len(self._recent_scores) > self.quality_window:
+                            self._recent_scores.pop(0)
+                        if len(self._recent_scores) >= self.quality_window and all(
+                            s < self.quality_threshold for s in self._recent_scores
+                        ):
+                            self._quality_halted = True
+                            should_halt = True
+
+                    if should_halt:
+                        msg = (
+                            f"🚨 [质量熔断] 连续 {self.quality_window} 个任务评分低于 "
+                            f"{self.quality_threshold}，流水线自动停止。"
+                        )
+                        print(msg)
+                        if self.telemetry:
+                            self.telemetry.emit(
+                                "QUALITY_HALT",
+                                "system",
+                                {
+                                    "message": msg,
+                                    "recent_scores": self._recent_scores,
+                                },
+                            )
+                        return {
+                            "status": "quality_halted",
+                            "final_output": result.get("final_output"),
+                            "history": result.get("history", []),
+                        }
 
                 # --- Drift detection tick ---
                 if self.drift_detector and self.drift_detector.tick():
@@ -364,6 +421,23 @@ class TROrchestrator:
                     except DriftAlert as alert:
                         print(f"  {alert}")
                         result["drift_alert"] = str(alert)
+
+                        # --- Drift auto-halt ---
+                        if self.drift_action == "halt":
+                            self._quality_halted = True
+                            if self.telemetry:
+                                self.telemetry.emit(
+                                    "DRIFT_HALT",
+                                    "system",
+                                    {
+                                        "message": str(alert),
+                                    },
+                                )
+                            return {
+                                "status": "drift_halted",
+                                "final_output": result.get("final_output"),
+                                "history": result.get("history", []),
+                            }
 
                 # --- Self-healer: record critiques and check for healing ---
                 if self.self_healer and result.get("history"):

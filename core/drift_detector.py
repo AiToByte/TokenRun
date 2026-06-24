@@ -94,9 +94,11 @@ class DriftDetector:
             expected_hash = sample.get("expected_output_hash", "")
 
             try:
-                from jinja2 import Template
+                from jinja2.sandbox import SandboxedEnvironment
 
-                rendered = Template(prompt_template).render(data=input_text)
+                env = SandboxedEnvironment()
+                template = env.from_string(prompt_template)
+                rendered = template.render(data=input_text)
                 resp = await self.actor.provider.request(
                     messages=[{"role": "user", "content": rendered}]
                 )
@@ -225,9 +227,11 @@ class SemanticDriftDetector:
             golden_emb = self._golden_embeddings[i]
 
             try:
-                from jinja2 import Template
+                from jinja2.sandbox import SandboxedEnvironment
 
-                rendered = Template(prompt_template).render(data=input_text)
+                env = SandboxedEnvironment()
+                template = env.from_string(prompt_template)
+                rendered = template.render(data=input_text)
                 resp = await self.actor.provider.request(
                     messages=[{"role": "user", "content": rendered}]
                 )
