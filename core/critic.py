@@ -67,7 +67,7 @@ class TaskCritic:
             "- passed (boolean): 是否通过所有核心规则\n"
             "- score (float): 综合评分 (0.0 - 1.0)\n"
             "- scores (object): 各维度评分，键为维度名，值为 0.0-1.0\n"
-            "  例如: {\"accuracy\": 0.9, \"completeness\": 0.8, \"format\": 1.0}\n"
+            '  例如: {"accuracy": 0.9, "completeness": 0.8, "format": 1.0}\n'
             "- critique (string): 如果不合格，请详细说明原因；如果合格，请留空\n"
             "- suggestions (list of strings): 具体的改进建议"
         )

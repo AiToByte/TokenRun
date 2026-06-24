@@ -24,7 +24,9 @@ __all__ = ["MCPClient", "MCPTool"]
 class MCPTool:
     """Represents a tool exposed by an MCP Server."""
 
-    def __init__(self, name: str, description: str, input_schema: Dict[str, Any]) -> None:
+    def __init__(
+        self, name: str, description: str, input_schema: Dict[str, Any]
+    ) -> None:
         self.name = name
         self.description = description
         self.input_schema = input_schema
@@ -73,11 +75,13 @@ class MCPClient:
 
         tools = []
         for t in tools_data:
-            tools.append(MCPTool(
-                name=t.get("name", ""),
-                description=t.get("description", ""),
-                input_schema=t.get("inputSchema", {}),
-            ))
+            tools.append(
+                MCPTool(
+                    name=t.get("name", ""),
+                    description=t.get("description", ""),
+                    input_schema=t.get("inputSchema", {}),
+                )
+            )
         self._tools_cache = tools
         return tools
 
@@ -100,10 +104,13 @@ class MCPClient:
         dict
             Tool response with ``content`` array.
         """
-        return await self._send_request("tools/call", {
-            "name": tool_name,
-            "arguments": arguments or {},
-        })
+        return await self._send_request(
+            "tools/call",
+            {
+                "name": tool_name,
+                "arguments": arguments or {},
+            },
+        )
 
     async def get_tool(self, name: str) -> Optional[MCPTool]:
         """Get a specific tool by name (uses cache if available)."""

@@ -18,6 +18,7 @@ __all__ = ["TaskQueue", "Priority"]
 
 class Priority(IntEnum):
     """Task priority levels.  Lower value = higher priority."""
+
     HIGH = 0
     NORMAL = 1
     LOW = 2

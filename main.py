@@ -39,6 +39,7 @@ __all__ = ["cli"]
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def load_runfile(path: str) -> Runfile:
     """Parse a YAML Runfile into a validated Runfile model."""
     with open(path, "r", encoding="utf-8") as f:
@@ -90,13 +91,11 @@ def load_data(runfile: Runfile) -> list[str]:
         "能耗问题以及就业市场冲击。如何在推动技术进步的同时确保负责任的 AI 发展，"
         "是当前社会各界共同关注的核心议题。专家认为，建立完善的 AI 治理框架、"
         "加强跨学科合作、提升公众 AI 素养将是关键所在。",
-
         "量子计算被认为是下一代计算技术的突破口。与传统计算机使用比特（0或1）不同，"
         "量子计算机利用量子比特的叠加态和纠缠特性，能够在特定问题上实现指数级加速。"
         "目前，谷歌、IBM、微软等科技巨头以及众多初创公司都在积极研发量子计算机。"
         "尽管距离通用量子计算机还有很长的路要走，但在药物发现、材料科学、"
         "密码学和优化问题等领域，量子计算已经展现出巨大的应用潜力。",
-
         "可持续发展已成为全球共识。面对气候变化、资源枯竭和生物多样性丧失等严峻挑战，"
         "各国政府和企业正在加速向绿色经济转型。可再生能源、循环经济、碳捕获技术"
         "以及绿色金融等领域的创新正在重塑全球经济格局。年轻一代消费者对环保产品"
@@ -108,13 +107,14 @@ def load_data(runfile: Runfile) -> list[str]:
 # Main
 # ---------------------------------------------------------------------------
 
+
 async def run_mission(runfile_path: str, sample_only: bool = False) -> None:
     """Execute a full TokenRun mission."""
     load_dotenv()
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  TokenRun — 工业级 AI 任务执行引擎")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # 1. Load Runfile
     runfile = load_runfile(runfile_path)
@@ -157,12 +157,12 @@ async def run_mission(runfile_path: str, sample_only: bool = False) -> None:
         print(f"   数据量: {len(sample_data)} 条")
 
         # 5. Sampling phase
-        print(f"\n{'─'*60}")
+        print(f"\n{'─' * 60}")
         sample_results = await orchestrator.run_sampling_gate(sample_data)
 
         for i, result in enumerate(sample_results):
             status = result.get("status", "unknown")
-            print(f"  样本 {i+1}: {status}")
+            print(f"  样本 {i + 1}: {status}")
             if status == "success":
                 preview = str(result.get("final_output", ""))[:80]
                 print(f"    预览: {preview}...")
@@ -204,7 +204,9 @@ async def run_mission(runfile_path: str, sample_only: bool = False) -> None:
                 current_cost_usd=ledger.report.total_cost_usd,
             )
             print("\n⏸️ 采样报告:")
-            print(f"   成功率: {report['summary']['success_count']}/{report['summary']['sample_count']}")
+            print(
+                f"   成功率: {report['summary']['success_count']}/{report['summary']['sample_count']}"
+            )
             print(f"   平均质量: {report['summary']['average_quality_score']}")
             econ = report.get("economics", {})
             if econ:
@@ -216,7 +218,7 @@ async def run_mission(runfile_path: str, sample_only: bool = False) -> None:
             sm.approve()
 
         # 8. Full production
-        print(f"\n{'─'*60}")
+        print(f"\n{'─' * 60}")
         full_results = await orchestrator.run_mass_production(sample_data)
         success = sum(1 for r in full_results if r.get("status") == "success")
         print(f"\n✅ 完成！成功: {success}/{len(full_results)}")
@@ -236,18 +238,21 @@ async def run_mission(runfile_path: str, sample_only: bool = False) -> None:
                 prompt_template=runfile.workflow[0].actor_prompt_template,
                 model_config={"model": actor_provider.model_name},
                 validation_rules=[
-                    r.model_dump() for r in runfile.workflow[0].loop_config.exit_criteria
+                    r.model_dump()
+                    for r in runfile.workflow[0].loop_config.exit_criteria
                 ],
             )
             print(f"📦 技能已固化: {skill_path}")
 
         # 10. ROI report
         skill_id = Path(skill_path).stem if "skill_path" in locals() else ""
-        print(ledger.get_roi_report(
-            data_count=len(sample_data),
-            success_count=success,
-            skill_id=skill_id,
-        ))
+        print(
+            ledger.get_roi_report(
+                data_count=len(sample_data),
+                success_count=success,
+                skill_id=skill_id,
+            )
+        )
 
         # 11. Cleanup: clear privacy vault
         redactor.clear_vault()

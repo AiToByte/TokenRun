@@ -120,7 +120,8 @@ class SelfHealer:
 
         # Build the meta-prompt
         critiques_summary = "\n".join(
-            f"- {c}" for c in self._critiques[-20:]  # last 20 critiques
+            f"- {c}"
+            for c in self._critiques[-20:]  # last 20 critiques
         )
 
         meta_prompt = f"""你是一个 Prompt 工程专家。

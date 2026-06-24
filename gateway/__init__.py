@@ -6,25 +6,36 @@ from gateway.privacy import PrivacyRedactor
 from gateway.provider import LLMProvider, LLMProviderError, LLMResponse
 
 __all__ = [
-    "FileGateway", "MCPClient", "MCPTool", "PrivacyRedactor",
-    "LLMProvider", "LLMProviderError", "LLMResponse",
+    "FileGateway",
+    "MCPClient",
+    "MCPTool",
+    "PrivacyRedactor",
+    "LLMProvider",
+    "LLMProviderError",
+    "LLMResponse",
 ]
 
 # Optional gateways (require extra dependencies)
 try:
     from gateway.s3_gateway import S3Gateway  # noqa: F401
+
     __all__.append("S3Gateway")
 except ImportError:
     pass
 
 try:
     from gateway.sql_gateway import SQLGateway  # noqa: F401
+
     __all__.append("SQLGateway")
 except ImportError:
     pass
 
 try:
-    from gateway.batch_provider import BatchProvider, BatchJob, BatchRequest, BatchResult  # noqa: F401
+    from gateway.batch_provider import BatchProvider  # noqa: F401
+    from gateway.batch_provider import BatchJob  # noqa: F401
+    from gateway.batch_provider import BatchRequest  # noqa: F401
+    from gateway.batch_provider import BatchResult  # noqa: F401
+
     __all__.extend(["BatchProvider", "BatchJob", "BatchRequest", "BatchResult"])
 except ImportError:
     pass

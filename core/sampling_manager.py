@@ -58,7 +58,9 @@ class SamplingManager:
         # ROI estimation
         success_rate = len(successful) / total if total > 0 else 0.0
         cost_per_sample = current_cost_usd / total if total > 0 else 0.0
-        estimated_total = cost_per_sample * total_data_count if total_data_count > 0 else 0.0
+        estimated_total = (
+            cost_per_sample * total_data_count if total_data_count > 0 else 0.0
+        )
         estimated_success = int(total_data_count * success_rate)
         cost_per_success = (
             estimated_total / estimated_success if estimated_success > 0 else 0.0

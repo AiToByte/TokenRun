@@ -23,6 +23,7 @@ class LLMProviderError(RuntimeError):
 @dataclass
 class LLMResponse:
     """Normalised response from any OpenAI-compatible chat endpoint."""
+
     content: str
     prompt_tokens: int
     completion_tokens: int
@@ -117,11 +118,11 @@ class LLMProvider:
                             try:
                                 delay = float(retry_after)
                             except ValueError:
-                                delay = 2.0 ** attempt
+                                delay = 2.0**attempt
                         else:
-                            delay = 2.0 ** attempt
+                            delay = 2.0**attempt
                     else:
-                        delay = 2.0 ** attempt
+                        delay = 2.0**attempt
 
                     if attempt < self.max_retries - 1:
                         await asyncio.sleep(delay)
@@ -131,8 +132,7 @@ class LLMProvider:
                 # For 4xx errors (non-retryable), raise immediately.
                 if resp.status_code >= 400:
                     raise LLMProviderError(
-                        f"LLM 请求被拒绝 (HTTP {resp.status_code}): "
-                        f"{resp.text}"
+                        f"LLM 请求被拒绝 (HTTP {resp.status_code}): {resp.text}"
                     )
 
                 data = resp.json()
@@ -148,7 +148,7 @@ class LLMProvider:
                 if exc.response.status_code in _RETRYABLE_STATUS:
                     last_exc = exc
                     if attempt < self.max_retries - 1:
-                        await asyncio.sleep(2.0 ** attempt)
+                        await asyncio.sleep(2.0**attempt)
                         continue
                 raise LLMProviderError(
                     f"LLM 请求被拒绝 (HTTP {exc.response.status_code}): "
@@ -158,15 +158,13 @@ class LLMProvider:
             except (httpx.TimeoutException, httpx.ConnectError) as exc:
                 last_exc = exc
                 if attempt < self.max_retries - 1:
-                    await asyncio.sleep(2.0 ** attempt)
+                    await asyncio.sleep(2.0**attempt)
                     continue
 
             except LLMProviderError:
                 raise
             except Exception as exc:
-                raise LLMProviderError(
-                    f"LLM 请求遇到意外错误: {exc}"
-                ) from exc
+                raise LLMProviderError(f"LLM 请求遇到意外错误: {exc}") from exc
 
         raise LLMProviderError(
             f"LLM 请求失败 (已重试{self.max_retries}次): {last_exc}"
@@ -207,14 +205,13 @@ class LLMProvider:
 
                 if resp.status_code in _RETRYABLE_STATUS:
                     if attempt < self.max_retries - 1:
-                        await asyncio.sleep(2.0 ** attempt)
+                        await asyncio.sleep(2.0**attempt)
                         continue
                     resp.raise_for_status()
 
                 if resp.status_code >= 400:
                     raise LLMProviderError(
-                        f"Embedding 请求被拒绝 (HTTP {resp.status_code}): "
-                        f"{resp.text}"
+                        f"Embedding 请求被拒绝 (HTTP {resp.status_code}): {resp.text}"
                     )
 
                 data = resp.json()
@@ -224,7 +221,7 @@ class LLMProvider:
                 if exc.response.status_code in _RETRYABLE_STATUS:
                     last_exc = exc
                     if attempt < self.max_retries - 1:
-                        await asyncio.sleep(2.0 ** attempt)
+                        await asyncio.sleep(2.0**attempt)
                         continue
                 raise LLMProviderError(
                     f"Embedding 请求被拒绝 (HTTP {exc.response.status_code}): "
@@ -234,15 +231,13 @@ class LLMProvider:
             except (httpx.TimeoutException, httpx.ConnectError) as exc:
                 last_exc = exc
                 if attempt < self.max_retries - 1:
-                    await asyncio.sleep(2.0 ** attempt)
+                    await asyncio.sleep(2.0**attempt)
                     continue
 
             except LLMProviderError:
                 raise
             except Exception as exc:
-                raise LLMProviderError(
-                    f"Embedding 请求遇到意外错误: {exc}"
-                ) from exc
+                raise LLMProviderError(f"Embedding 请求遇到意外错误: {exc}") from exc
 
         raise LLMProviderError(
             f"Embedding 请求失败 (已重试{self.max_retries}次): {last_exc}"

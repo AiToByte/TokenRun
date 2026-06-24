@@ -91,7 +91,9 @@ class ActorCriticLoop:
         iterations: List[Dict[str, Any]] = []
         trace = TaskTrace(task_id=node.id, status=TaskStatus.RUNNING)
         strategy = node.loop_config.strategy
-        max_attempts = 1 if strategy == LoopStrategy.ONCE else node.loop_config.max_attempts
+        max_attempts = (
+            1 if strategy == LoopStrategy.ONCE else node.loop_config.max_attempts
+        )
         final_output = ""  # safe default for exhausted path
 
         # --- Privacy: mask sensitive data before sending to LLM ---
@@ -181,7 +183,11 @@ class ActorCriticLoop:
                 )
 
             # Record critic token consumption
-            if self.ledger and eval_result.audit_cost is not None and eval_result.audit_cost > 0:
+            if (
+                self.ledger
+                and eval_result.audit_cost is not None
+                and eval_result.audit_cost > 0
+            ):
                 self.ledger.record_usage(
                     model_name=self.critic.provider.model_name,
                     prompt_tokens=0,
@@ -275,7 +281,9 @@ class ActorCriticLoop:
         if strategy == LoopStrategy.EXHAUSTIVE and best_result is not None:
             best_out = best_result["output"]
             best_eval: EvaluationResult = best_result["eval"]
-            trace.status = TaskStatus.COMPLETED if best_eval.passed else TaskStatus.FAILED
+            trace.status = (
+                TaskStatus.COMPLETED if best_eval.passed else TaskStatus.FAILED
+            )
             trace.final_output = best_out
             return {
                 "status": "success" if best_eval.passed else "exhausted",
@@ -415,9 +423,7 @@ class ActorCriticLoop:
             "    print(json.dumps({'passed': False, 'score': 0.0, 'error': str(e)}))\n"
         )
         try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".py", delete=False
-            ) as f:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
                 f.write(script)
                 f.flush()
                 temp_path = f.name
@@ -510,6 +516,7 @@ class ActorCriticLoop:
         return (
             current.model_id == locked.model_id
             and current.prompt_hash == locked.prompt_hash
-            and current.parameters.get("temperature") == locked.parameters.get("temperature")
+            and current.parameters.get("temperature")
+            == locked.parameters.get("temperature")
             and current.parameters.get("seed") == locked.parameters.get("seed")
         )

@@ -28,8 +28,7 @@ class SQLGateway:
             from sqlalchemy import create_engine
         except ImportError:
             raise ImportError(
-                "SQLGateway requires sqlalchemy. "
-                "Install with: pip install sqlalchemy"
+                "SQLGateway requires sqlalchemy. Install with: pip install sqlalchemy"
             )
         self._engine = create_engine(connection_string)
 
@@ -86,8 +85,5 @@ class SQLGateway:
         columns = inspector.get_columns(table_name)
         return {
             "table": table_name,
-            "columns": [
-                {"name": c["name"], "type": str(c["type"])}
-                for c in columns
-            ],
+            "columns": [{"name": c["name"], "type": str(c["type"])} for c in columns],
         }

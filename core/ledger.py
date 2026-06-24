@@ -27,6 +27,7 @@ class BudgetExceededError(TokenRunError):
 @dataclass
 class UsageReport:
     """Accumulated token counts and cost for a single task run."""
+
     actor_prompt_tokens: int = 0
     actor_completion_tokens: int = 0
     critic_prompt_tokens: int = 0
@@ -40,6 +41,7 @@ class UsageReport:
 @dataclass
 class ValueMetrics:
     """Tracks the value created by a mission (not just the cost)."""
+
     items_processed: int = 0
     items_succeeded: int = 0
     items_failed: int = 0
@@ -145,14 +147,18 @@ class TokenLedger:
             if not self._fused and self.report.total_cost_usd >= self.budget_usd:
                 self._fused = True
                 raise BudgetExceededError(
-                f"\U0001f6a8 [熔断] 已达到预算上限 ${self.budget_usd:.4f}。"
-                f" 当前消耗 ${self.report.total_cost_usd:.4f}。任务紧急停止。"
-            )
+                    f"\U0001f6a8 [熔断] 已达到预算上限 ${self.budget_usd:.4f}。"
+                    f" 当前消耗 ${self.report.total_cost_usd:.4f}。任务紧急停止。"
+                )
 
     def get_summary(self) -> Dict[str, Any]:
         """Return a snapshot of current consumption."""
-        actor_total = self.report.actor_prompt_tokens + self.report.actor_completion_tokens
-        critic_total = self.report.critic_prompt_tokens + self.report.critic_completion_tokens
+        actor_total = (
+            self.report.actor_prompt_tokens + self.report.actor_completion_tokens
+        )
+        critic_total = (
+            self.report.critic_prompt_tokens + self.report.critic_completion_tokens
+        )
         if critic_total > 0:
             ratio_str = f"{actor_total / critic_total:.2f} (Actor/Critic Ratio)"
         else:
@@ -187,14 +193,18 @@ class TokenLedger:
         skill_id:
             ID of the solidified skill (if any).
         """
-        actor_total = self.report.actor_prompt_tokens + self.report.actor_completion_tokens
-        critic_total = self.report.critic_prompt_tokens + self.report.critic_completion_tokens
+        actor_total = (
+            self.report.actor_prompt_tokens + self.report.actor_completion_tokens
+        )
+        critic_total = (
+            self.report.critic_prompt_tokens + self.report.critic_completion_tokens
+        )
         total_tokens = actor_total + critic_total
 
         lines = [
-            f"\n{'='*50}",
+            f"\n{'=' * 50}",
             "  Proof of Value — 任务价值报告",
-            f"{'='*50}",
+            f"{'=' * 50}",
             f"  Token 消耗: {total_tokens:,} (Actor: {actor_total:,}, Critic: {critic_total:,})",
             f"  费用: ${self.report.total_cost_usd:.4f} / ${self.budget_usd:.4f}",
             f"  API 调用: {self.report.call_count} 次",
@@ -212,7 +222,7 @@ class TokenLedger:
             lines.append(f"  固化技能: {skill_id}")
             lines.append("  下次运行预计成本降低 15%（逻辑已锁定，重试率将降低）")
 
-        lines.append(f"{'='*50}")
+        lines.append(f"{'=' * 50}")
         return "\n".join(lines)
 
     # ------------------------------------------------------------------

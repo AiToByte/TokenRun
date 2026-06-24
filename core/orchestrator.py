@@ -110,10 +110,15 @@ class TROrchestrator:
             print(f"📝 [编排器] Prompt 已更新: {version.version_id} — {change_log}")
             # Update fingerprint to reflect new prompt
             from core.runner import ActorCriticLoop as ACL
+
             self.runfile.fingerprint = ACL.compute_fingerprint(
-                model_id=self.runfile.fingerprint.model_id if self.runfile.fingerprint else "",
+                model_id=self.runfile.fingerprint.model_id
+                if self.runfile.fingerprint
+                else "",
                 prompt_template=new_prompt,
-                parameters=self.runfile.fingerprint.parameters if self.runfile.fingerprint else {},
+                parameters=self.runfile.fingerprint.parameters
+                if self.runfile.fingerprint
+                else {},
             )
 
         self._is_paused = False
@@ -124,9 +129,7 @@ class TROrchestrator:
     # Public API
     # ------------------------------------------------------------------
 
-    async def run_sampling_gate(
-        self, data_stream: List[str]
-    ) -> List[Dict[str, Any]]:
+    async def run_sampling_gate(self, data_stream: List[str]) -> List[Dict[str, Any]]:
         """Execute the 1% sampling phase on the first workflow node."""
         cfg = self.runfile.sampling
         if not cfg.enabled:
@@ -201,7 +204,9 @@ class TROrchestrator:
                 for dep_id in node.depends_on:
                     dep_outputs = data_by_node.get(dep_id, [])
                     if not dep_outputs:
-                        print(f"  ⚠️ 节点 [{node.name}] 的上游依赖 [{dep_id}] 无输出，跳过。")
+                        print(
+                            f"  ⚠️ 节点 [{node.name}] 的上游依赖 [{dep_id}] 无输出，跳过。"
+                        )
                         continue
                     input_items.extend(dep_outputs)
                 if not input_items:
@@ -219,10 +224,14 @@ class TROrchestrator:
                 successful = sum(1 for r in results if r.get("status") == "success")
                 current = self.lineage.get_current(node)
                 if current:
-                    self.lineage.record_stats(node, current.version_id, {
-                        "pass_rate": round(successful / len(results), 4),
-                        "total_processed": len(results),
-                    })
+                    self.lineage.record_stats(
+                        node,
+                        current.version_id,
+                        {
+                            "pass_rate": round(successful / len(results), 4),
+                            "total_processed": len(results),
+                        },
+                    )
 
             outputs = []
             for r in results:
@@ -283,9 +292,7 @@ class TROrchestrator:
                     skill_path = candidate
                     break
             else:
-                raise FileNotFoundError(
-                    f"技能文件不存在: {node.skill_ref}"
-                )
+                raise FileNotFoundError(f"技能文件不存在: {node.skill_ref}")
 
         skill_data = json.loads(skill_path.read_text(encoding="utf-8"))
 
@@ -295,6 +302,7 @@ class TROrchestrator:
 
         if skill_data.get("validation_rules"):
             from core.models import ValidationRule
+
             node.loop_config.exit_criteria = [
                 ValidationRule(**r) for r in skill_data["validation_rules"]
             ]
@@ -311,8 +319,7 @@ class TROrchestrator:
         node_override: Optional[TaskNode] = None,
     ) -> List[Dict[str, Any]]:
         tasks = [
-            self._bounded_execute(item, node_override=node_override)
-            for item in batch
+            self._bounded_execute(item, node_override=node_override) for item in batch
         ]
         return await asyncio.gather(*tasks, return_exceptions=False)
 
@@ -350,8 +357,10 @@ class TROrchestrator:
                             node.actor_prompt_template
                         )
                         if not report.get("drift_detected"):
-                            print(f"  ✅ [漂移检测] 第 {report['check_number']} 次检查通过"
-                                  f" (匹配率: {report['match_rate']:.1%})")
+                            print(
+                                f"  ✅ [漂移检测] 第 {report['check_number']} 次检查通过"
+                                f" (匹配率: {report['match_rate']:.1%})"
+                            )
                     except DriftAlert as alert:
                         print(f"  {alert}")
                         result["drift_alert"] = str(alert)
@@ -366,12 +375,16 @@ class TROrchestrator:
                     # Check if healing is needed after recording critiques
                     suggestion = self.self_healer.check_healing_needed()
                     if suggestion and self.telemetry:
-                        self.telemetry.emit("HEALING_SUGGESTION", "system", {
-                            "pattern": suggestion.critique_pattern,
-                            "frequency": suggestion.frequency,
-                            "confidence": suggestion.confidence,
-                            "message": f"检测到重复批评模式 ({suggestion.frequency}次): {suggestion.critique_pattern}。建议优化 Prompt。",
-                        })
+                        self.telemetry.emit(
+                            "HEALING_SUGGESTION",
+                            "system",
+                            {
+                                "pattern": suggestion.critique_pattern,
+                                "frequency": suggestion.frequency,
+                                "confidence": suggestion.confidence,
+                                "message": f"检测到重复批评模式 ({suggestion.frequency}次): {suggestion.critique_pattern}。建议优化 Prompt。",
+                            },
+                        )
 
                 # --- Telemetry: emit iteration event ---
                 if self.telemetry and result.get("history"):

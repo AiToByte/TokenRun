@@ -46,6 +46,7 @@ _mission_events: Dict[str, asyncio.Event] = {}  # mission_id → approval event
 # Request / Response models
 # ---------------------------------------------------------------------------
 
+
 class MissionCreate(BaseModel):
     runfile_path: str = "runfiles/test_mission.yaml"
     sample_only: bool = False
@@ -81,6 +82,7 @@ class SkillInfo(BaseModel):
 # ---------------------------------------------------------------------------
 # REST endpoints
 # ---------------------------------------------------------------------------
+
 
 @app.get("/health")
 async def health() -> Dict[str, str]:
@@ -125,11 +127,13 @@ async def create_mission(req: MissionCreate) -> MissionStatus:
     _mission_events[mission_id] = asyncio.Event()  # approval signal
 
     # Broadcast status
-    await _broadcast({
-        "type": "STATUS_UPDATE",
-        "mission_id": mission_id,
-        "phase": "INIT",
-    })
+    await _broadcast(
+        {
+            "type": "STATUS_UPDATE",
+            "mission_id": mission_id,
+            "phase": "INIT",
+        }
+    )
 
     # Start mission in background
     asyncio.create_task(_run_mission_bg(mission_id, req))
@@ -176,13 +180,17 @@ async def approve_mission(mission_id: str, req: ApprovalRequest) -> Dict[str, st
         event = _mission_events.get(mission_id)
         if event:
             event.set()
-        await _broadcast({"type": "STATUS_UPDATE", "mission_id": mission_id, "phase": "APPROVED"})
+        await _broadcast(
+            {"type": "STATUS_UPDATE", "mission_id": mission_id, "phase": "APPROVED"}
+        )
         return {"status": "approved"}
 
     elif req.action == "abort":
         m["status"] = "failed"
         m["phase"] = "ABORTED"
-        await _broadcast({"type": "STATUS_UPDATE", "mission_id": mission_id, "phase": "ABORTED"})
+        await _broadcast(
+            {"type": "STATUS_UPDATE", "mission_id": mission_id, "phase": "ABORTED"}
+        )
         return {"status": "aborted"}
 
     elif req.action == "revise":
@@ -206,11 +214,13 @@ async def revise_mission(mission_id: str, req: ReviseRequest) -> Dict[str, str]:
         "new_prompt": req.new_prompt,
         "change_log": req.change_log,
     }
-    await _broadcast({
-        "type": "PROMPT_REVISED",
-        "mission_id": mission_id,
-        "new_prompt": req.new_prompt,
-    })
+    await _broadcast(
+        {
+            "type": "PROMPT_REVISED",
+            "mission_id": mission_id,
+            "new_prompt": req.new_prompt,
+        }
+    )
     return {"status": "revision_applied", "phase": "RESAMPLING"}
 
 
@@ -233,13 +243,16 @@ async def list_skills() -> List[SkillInfo]:
     for f in vault.glob("*.trs"):
         try:
             data = json.loads(f.read_text(encoding="utf-8"))
-            skills.append(SkillInfo(
-                skill_id=data.get("skill_id", f.stem),
-                name=data.get("name", "Unknown"),
-                created_at=data.get("created_at", ""),
-            ))
+            skills.append(
+                SkillInfo(
+                    skill_id=data.get("skill_id", f.stem),
+                    name=data.get("name", "Unknown"),
+                    created_at=data.get("created_at", ""),
+                )
+            )
         except (json.JSONDecodeError, OSError) as exc:
             import warnings
+
             warnings.warn(f"Failed to read skill file {f}: {exc}")
     return skills
 
@@ -249,6 +262,7 @@ async def run_skill(skill_id: str) -> MissionStatus:
     """Run a solidified skill — load locked params and start a new mission."""
     from core.models import Runfile
     from dotenv import load_dotenv
+
     load_dotenv()
 
     # Find the skill file
@@ -264,6 +278,7 @@ async def run_skill(skill_id: str) -> MissionStatus:
 
     # Build Runfile from skill
     from core.models import LoopConfig, TaskNode, ValidationRule
+
     exit_criteria = []
     for rule_data in skill_data.get("validation_rules", []):
         exit_criteria.append(ValidationRule(**rule_data))
@@ -274,7 +289,9 @@ async def run_skill(skill_id: str) -> MissionStatus:
         actor_prompt_template=skill_data.get("optimized_prompt", ""),
         loop_config=LoopConfig(max_attempts=3, exit_criteria=exit_criteria),
     )
-    runfile = Runfile(name=f"Skill: {skill_data.get('name', skill_id)}", workflow=[node])
+    runfile = Runfile(
+        name=f"Skill: {skill_data.get('name', skill_id)}", workflow=[node]
+    )
 
     # Create mission
     mission_id = f"skill-{uuid.uuid4().hex[:8]}"
@@ -311,7 +328,9 @@ async def _run_skill_bg(mission_id: str, runfile: Runfile) -> None:
     try:
         m["status"] = "running"
         m["phase"] = "RUNNING"
-        await _broadcast({"type": "STATUS_UPDATE", "mission_id": mission_id, "phase": "RUNNING"})
+        await _broadcast(
+            {"type": "STATUS_UPDATE", "mission_id": mission_id, "phase": "RUNNING"}
+        )
 
         from core.app import TokenRunApp
         from main import build_providers
@@ -325,10 +344,18 @@ async def _run_skill_bg(mission_id: str, runfile: Runfile) -> None:
             m["phase"] = "DONE"
             m["progress"] = 1.0
             m["result"] = result
-            m["cost_usd"] = result.get("ledger_summary", {}).get("total_cost", "$0.0000")
+            m["cost_usd"] = result.get("ledger_summary", {}).get(
+                "total_cost", "$0.0000"
+            )
             m["success_count"] = result.get("success_count", 0)
             m["total_count"] = result.get("total_count", 0)
-            await _broadcast({"type": "STATUS_UPDATE", "mission_id": mission_id, "phase": "COMPLETED"})
+            await _broadcast(
+                {
+                    "type": "STATUS_UPDATE",
+                    "mission_id": mission_id,
+                    "phase": "COMPLETED",
+                }
+            )
         finally:
             await actor_provider.close()
             await critic_provider.close()
@@ -365,16 +392,19 @@ async def export_fine_tune(
     if result:
         # Build traces from the mission results
         for r in result.get("results", []):
-            traces.append({
-                "status": r.get("status"),
-                "history": r.get("history", []),
-                "final_output": r.get("final_output", ""),
-            })
+            traces.append(
+                {
+                    "status": r.get("status"),
+                    "history": r.get("history", []),
+                    "final_output": r.get("final_output", ""),
+                }
+            )
 
     if not traces:
         raise HTTPException(400, "No traces available for export")
 
     from core.solidifier import SkillSolidifier
+
     solidifier = SkillSolidifier()
     try:
         file_path = solidifier.export_fine_tune(
@@ -388,6 +418,7 @@ async def export_fine_tune(
 # ---------------------------------------------------------------------------
 # WebSocket
 # ---------------------------------------------------------------------------
+
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket) -> None:
@@ -417,6 +448,7 @@ async def _broadcast(message: Dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 # SSE (Server-Sent Events)
 # ---------------------------------------------------------------------------
+
 
 @app.get("/missions/{mission_id}/events")
 async def mission_events(mission_id: str) -> StreamingResponse:
@@ -457,6 +489,7 @@ async def mission_events(mission_id: str) -> StreamingResponse:
 # Background mission runner
 # ---------------------------------------------------------------------------
 
+
 async def _run_mission_bg(mission_id: str, req: MissionCreate) -> None:
     """Run a mission in the background using TokenRunApp."""
     m = _active_missions.get(mission_id)
@@ -467,7 +500,9 @@ async def _run_mission_bg(mission_id: str, req: MissionCreate) -> None:
         m["status"] = "running"
         m["phase"] = "SAMPLING"
         m["progress"] = 0.0
-        await _broadcast({"type": "STATUS_UPDATE", "mission_id": mission_id, "phase": "SAMPLING"})
+        await _broadcast(
+            {"type": "STATUS_UPDATE", "mission_id": mission_id, "phase": "SAMPLING"}
+        )
 
         # Build real components
         from core.app import TokenRunApp
@@ -481,6 +516,7 @@ async def _run_mission_bg(mission_id: str, req: MissionCreate) -> None:
             runfile = Runfile(**yaml.safe_load(f))
 
         from main import build_providers
+
         actor_provider, critic_provider = build_providers(runfile)
 
         try:
@@ -488,7 +524,14 @@ async def _run_mission_bg(mission_id: str, req: MissionCreate) -> None:
 
             m["phase"] = "SAMPLING"
             m["progress"] = 0.1
-            await _broadcast({"type": "STATUS_UPDATE", "mission_id": mission_id, "phase": "SAMPLING", "progress": 0.1})
+            await _broadcast(
+                {
+                    "type": "STATUS_UPDATE",
+                    "mission_id": mission_id,
+                    "phase": "SAMPLING",
+                    "progress": 0.1,
+                }
+            )
 
             # Approval callback: wait for API approve_mission to signal
             approval_event = _mission_events.get(mission_id)
@@ -496,12 +539,14 @@ async def _run_mission_bg(mission_id: str, req: MissionCreate) -> None:
             async def approval_gate(_report):
                 m["phase"] = "AWAITING_APPROVAL"
                 m["status"] = "awaiting_approval"
-                await _broadcast({
-                    "type": "APPROVAL_REQUIRED",
-                    "mission_id": mission_id,
-                    "phase": "AWAITING_APPROVAL",
-                    "report": _report,
-                })
+                await _broadcast(
+                    {
+                        "type": "APPROVAL_REQUIRED",
+                        "mission_id": mission_id,
+                        "phase": "AWAITING_APPROVAL",
+                        "report": _report,
+                    }
+                )
                 # Wait for the API endpoint to call event.set()
                 if approval_event:
                     await approval_event.wait()
@@ -520,10 +565,19 @@ async def _run_mission_bg(mission_id: str, req: MissionCreate) -> None:
             m["phase"] = "DONE"
             m["progress"] = 1.0
             m["result"] = result
-            m["cost_usd"] = result.get("ledger_summary", {}).get("total_cost", "$0.0000")
+            m["cost_usd"] = result.get("ledger_summary", {}).get(
+                "total_cost", "$0.0000"
+            )
             m["success_count"] = result.get("success_count", 0)
             m["total_count"] = result.get("total_count", 0)
-            await _broadcast({"type": "STATUS_UPDATE", "mission_id": mission_id, "phase": "COMPLETED", "progress": 1.0})
+            await _broadcast(
+                {
+                    "type": "STATUS_UPDATE",
+                    "mission_id": mission_id,
+                    "phase": "COMPLETED",
+                    "progress": 1.0,
+                }
+            )
 
         finally:
             await actor_provider.close()
@@ -532,8 +586,10 @@ async def _run_mission_bg(mission_id: str, req: MissionCreate) -> None:
     except Exception as exc:
         m["status"] = "failed"
         m["phase"] = "ERROR"
-        await _broadcast({
-            "type": "ERROR",
-            "mission_id": mission_id,
-            "error": str(exc),
-        })
+        await _broadcast(
+            {
+                "type": "ERROR",
+                "mission_id": mission_id,
+                "error": str(exc),
+            }
+        )

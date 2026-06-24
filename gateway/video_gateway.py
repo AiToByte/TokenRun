@@ -123,6 +123,8 @@ class VideoGateway:
             "width": int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
             "height": int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
         }
-        info["duration_seconds"] = round(info["frame_count"] / info["fps"], 2) if info["fps"] > 0 else 0
+        info["duration_seconds"] = (
+            round(info["frame_count"] / info["fps"], 2) if info["fps"] > 0 else 0
+        )
         cap.release()
         return info

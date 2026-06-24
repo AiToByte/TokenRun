@@ -65,14 +65,16 @@ class TaskActor:
 
         messages = []
         if feedback:
-            messages.append({
-                "role": "system",
-                "content": (
-                    "你在上一轮尝试中未达标。反馈如下：\n"
-                    f"{feedback}\n\n"
-                    "请根据反馈修正你的输出，确保满足所有校验规则。"
-                ),
-            })
+            messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "你在上一轮尝试中未达标。反馈如下：\n"
+                        f"{feedback}\n\n"
+                        "请根据反馈修正你的输出，确保满足所有校验规则。"
+                    ),
+                }
+            )
         messages.append({"role": "user", "content": rendered})
 
         return await self.provider.request(messages=messages)

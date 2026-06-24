@@ -19,7 +19,8 @@
       "Bash(python -m pytest tests/test_runner.py::TestFingerprint::test_compute_fingerprint -v --tb=short)",
       "Bash(python -m ruff check core/ gateway/ api/ main.py --fix)",
       "Bash(ruff check *)",
-      "Bash(python -m pytest tests/ -q --tb=line)"
+      "Bash(python -m pytest tests/ -q --tb=line)",
+      "Bash(ruff format *)"
     ]
   }
 }

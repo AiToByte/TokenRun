@@ -126,11 +126,13 @@ class SkillSolidifier:
             if history:
                 # Use first iteration's output as the input context
                 # (the original input is not stored in history dicts)
-                samples.append({
-                    "input_preview": history[0].get("output", "")[:200],
-                    "output": t.get("final_output", ""),
-                    "score": history[-1].get("score", 0.0),
-                })
+                samples.append(
+                    {
+                        "input_preview": history[0].get("output", "")[:200],
+                        "output": t.get("final_output", ""),
+                        "score": history[-1].get("score", 0.0),
+                    }
+                )
         return samples
 
     def _calculate_stats(self, traces: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -182,7 +184,8 @@ class SkillSolidifier:
             Path to the generated JSONL file.
         """
         successful = [
-            t for t in traces
+            t
+            for t in traces
             if t.get("status") == "success"
             and t.get("history")
             and t["history"][-1].get("score", 0) >= min_score
@@ -202,27 +205,42 @@ class SkillSolidifier:
             output_text = t.get("final_output", "")
 
             if format == "openai":
-                lines.append(json.dumps({
-                    "messages": [
-                        {"role": "user", "content": input_text},
-                        {"role": "assistant", "content": output_text},
-                    ]
-                }, ensure_ascii=False))
+                lines.append(
+                    json.dumps(
+                        {
+                            "messages": [
+                                {"role": "user", "content": input_text},
+                                {"role": "assistant", "content": output_text},
+                            ]
+                        },
+                        ensure_ascii=False,
+                    )
+                )
 
             elif format == "alpaca":
-                lines.append(json.dumps({
-                    "instruction": input_text,
-                    "input": "",
-                    "output": output_text,
-                }, ensure_ascii=False))
+                lines.append(
+                    json.dumps(
+                        {
+                            "instruction": input_text,
+                            "input": "",
+                            "output": output_text,
+                        },
+                        ensure_ascii=False,
+                    )
+                )
 
             elif format == "sharegpt":
-                lines.append(json.dumps({
-                    "conversations": [
-                        {"from": "human", "value": input_text},
-                        {"from": "gpt", "value": output_text},
-                    ]
-                }, ensure_ascii=False))
+                lines.append(
+                    json.dumps(
+                        {
+                            "conversations": [
+                                {"from": "human", "value": input_text},
+                                {"from": "gpt", "value": output_text},
+                            ]
+                        },
+                        ensure_ascii=False,
+                    )
+                )
 
             else:
                 raise ValueError(f"不支持的导出格式: {format}")

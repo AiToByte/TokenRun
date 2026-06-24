@@ -124,9 +124,7 @@ except Exception as e:
     print(json.dumps({{"passed": False, "score": 0.0, "error": str(e)}}))
 """
         try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".py", delete=False
-            ) as f:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
                 f.write(script)
                 temp_path = f.name
 

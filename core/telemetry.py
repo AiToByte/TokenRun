@@ -18,6 +18,7 @@ __all__ = ["TelemetryEvent", "TelemetryManager"]
 @dataclass
 class TelemetryEvent:
     """A single telemetry event."""
+
     event_type: str  # "STATUS_UPDATE" | "TRACE_EVENT" | "APPROVAL_REQUIRED" | "ERROR"
     task_id: str
     timestamp: float = field(default_factory=time.time)
@@ -74,6 +75,7 @@ class TelemetryManager:
                 handler(event)
             except Exception as exc:
                 import warnings
+
                 warnings.warn(f"Telemetry handler error: {exc}")
         return event
 
@@ -87,13 +89,17 @@ class TelemetryManager:
         output_preview: str = "",
     ) -> TelemetryEvent:
         """Convenience: emit a TRACE_EVENT for a single loop iteration."""
-        return self.emit("TRACE_EVENT", task_id, {
-            "node_id": node_id,
-            "iteration": iteration,
-            "passed": passed,
-            "score": score,
-            "output_preview": output_preview[:200],
-        })
+        return self.emit(
+            "TRACE_EVENT",
+            task_id,
+            {
+                "node_id": node_id,
+                "iteration": iteration,
+                "passed": passed,
+                "score": score,
+                "output_preview": output_preview[:200],
+            },
+        )
 
     def emit_status(
         self,
@@ -103,11 +109,15 @@ class TelemetryManager:
         cost_usd: float = 0.0,
     ) -> TelemetryEvent:
         """Convenience: emit a STATUS_UPDATE event."""
-        return self.emit("STATUS_UPDATE", task_id, {
-            "phase": phase,
-            "progress": progress,
-            "cost_usd": cost_usd,
-        })
+        return self.emit(
+            "STATUS_UPDATE",
+            task_id,
+            {
+                "phase": phase,
+                "progress": progress,
+                "cost_usd": cost_usd,
+            },
+        )
 
     def emit_sample_report(
         self,

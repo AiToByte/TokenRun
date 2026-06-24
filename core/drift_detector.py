@@ -95,26 +95,29 @@ class DriftDetector:
 
             try:
                 from jinja2 import Template
+
                 rendered = Template(prompt_template).render(data=input_text)
                 resp = await self.actor.provider.request(
                     messages=[{"role": "user", "content": rendered}]
                 )
-                actual_hash = hashlib.sha256(
-                    resp.content.encode()
-                ).hexdigest()[:16]
+                actual_hash = hashlib.sha256(resp.content.encode()).hexdigest()[:16]
                 matched = actual_hash == expected_hash if expected_hash else True
                 if matched:
                     matches += 1
-                details.append({
-                    "input_preview": input_text[:50],
-                    "matched": matched,
-                })
+                details.append(
+                    {
+                        "input_preview": input_text[:50],
+                        "matched": matched,
+                    }
+                )
             except Exception as exc:
-                details.append({
-                    "input_preview": input_text[:50],
-                    "matched": False,
-                    "error": str(exc),
-                })
+                details.append(
+                    {
+                        "input_preview": input_text[:50],
+                        "matched": False,
+                        "error": str(exc),
+                    }
+                )
 
         total = len(self.golden_samples)
         match_rate = matches / total if total > 0 else 1.0
@@ -223,6 +226,7 @@ class SemanticDriftDetector:
 
             try:
                 from jinja2 import Template
+
                 rendered = Template(prompt_template).render(data=input_text)
                 resp = await self.actor.provider.request(
                     messages=[{"role": "user", "content": rendered}]
@@ -232,30 +236,34 @@ class SemanticDriftDetector:
                     current_emb = await self.embed_provider.embed(resp.content)
                     similarity = _cosine_similarity(golden_emb, current_emb)
                     similarities.append(similarity)
-                    details.append({
-                        "input_preview": input_text[:50],
-                        "similarity": round(similarity, 4),
-                        "passed": similarity >= self.similarity_threshold,
-                    })
+                    details.append(
+                        {
+                            "input_preview": input_text[:50],
+                            "similarity": round(similarity, 4),
+                            "passed": similarity >= self.similarity_threshold,
+                        }
+                    )
                 else:
-                    details.append({
-                        "input_preview": input_text[:50],
-                        "similarity": None,
-                        "passed": True,
-                        "note": "No golden embedding to compare",
-                    })
+                    details.append(
+                        {
+                            "input_preview": input_text[:50],
+                            "similarity": None,
+                            "passed": True,
+                            "note": "No golden embedding to compare",
+                        }
+                    )
 
             except Exception as exc:
-                details.append({
-                    "input_preview": input_text[:50],
-                    "similarity": 0.0,
-                    "passed": False,
-                    "error": str(exc),
-                })
+                details.append(
+                    {
+                        "input_preview": input_text[:50],
+                        "similarity": 0.0,
+                        "passed": False,
+                        "error": str(exc),
+                    }
+                )
 
-        avg_similarity = (
-            sum(similarities) / len(similarities) if similarities else 1.0
-        )
+        avg_similarity = sum(similarities) / len(similarities) if similarities else 1.0
         drift_detected = avg_similarity < self.similarity_threshold
 
         report = {

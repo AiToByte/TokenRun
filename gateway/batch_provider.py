@@ -28,6 +28,7 @@ __all__ = ["BatchProvider", "BatchJob", "BatchRequest", "BatchResult"]
 @dataclass
 class BatchRequest:
     """A single request in a batch."""
+
     custom_id: str
     messages: List[Dict[str, str]]
     model: str = "gpt-4o-mini"
@@ -38,6 +39,7 @@ class BatchRequest:
 @dataclass
 class BatchResult:
     """Result for a single request in a completed batch."""
+
     custom_id: str
     content: str = ""
     prompt_tokens: int = 0
@@ -48,6 +50,7 @@ class BatchResult:
 @dataclass
 class BatchJob:
     """Status of a batch job."""
+
     batch_id: str
     status: str  # "validating" | "in_progress" | "completed" | "failed" | "expired"
     total_requests: int = 0
@@ -129,7 +132,9 @@ class BatchProvider:
             f"{self.base_url}/files",
             headers={"Authorization": f"Bearer {self._api_key}"},
             data={"purpose": "batch"},
-            files={"file": ("batch.jsonl", jsonl_content.encode(), "application/jsonl")},
+            files={
+                "file": ("batch.jsonl", jsonl_content.encode(), "application/jsonl")
+            },
         )
         file_resp.raise_for_status()
         file_id = file_resp.json()["id"]
@@ -215,9 +220,7 @@ class BatchProvider:
             if job.status == "completed":
                 return job
             if job.status in ("failed", "expired"):
-                raise RuntimeError(
-                    f"批次 {batch_id} 状态异常: {job.status}"
-                )
+                raise RuntimeError(f"批次 {batch_id} 状态异常: {job.status}")
 
             await asyncio.sleep(self.poll_interval)
 
@@ -252,17 +255,21 @@ class BatchProvider:
             error = data.get("error")
 
             if error:
-                results.append(BatchResult(
-                    custom_id=custom_id,
-                    error=str(error),
-                ))
+                results.append(
+                    BatchResult(
+                        custom_id=custom_id,
+                        error=str(error),
+                    )
+                )
             elif choices:
-                results.append(BatchResult(
-                    custom_id=custom_id,
-                    content=choices[0].get("message", {}).get("content", ""),
-                    prompt_tokens=usage.get("prompt_tokens", 0),
-                    completion_tokens=usage.get("completion_tokens", 0),
-                ))
+                results.append(
+                    BatchResult(
+                        custom_id=custom_id,
+                        content=choices[0].get("message", {}).get("content", ""),
+                        prompt_tokens=usage.get("prompt_tokens", 0),
+                        completion_tokens=usage.get("completion_tokens", 0),
+                    )
+                )
 
         return results
 

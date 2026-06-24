@@ -13,11 +13,24 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 __all__ = [
-    "DeterminismLevel", "LoopStrategy", "ResourceType", "TaskStatus",
-    "Resource", "SecurityConfig", "SamplingConfig", "Fingerprint",
-    "ValidationRule", "LoopConfig", "ModelTier", "PromptVersion", "TaskNode",
-    "GovernanceConfig", "Runfile",
-    "EvaluationResult", "ExecutionIteration", "TaskTrace",
+    "DeterminismLevel",
+    "LoopStrategy",
+    "ResourceType",
+    "TaskStatus",
+    "Resource",
+    "SecurityConfig",
+    "SamplingConfig",
+    "Fingerprint",
+    "ValidationRule",
+    "LoopConfig",
+    "ModelTier",
+    "PromptVersion",
+    "TaskNode",
+    "GovernanceConfig",
+    "Runfile",
+    "EvaluationResult",
+    "ExecutionIteration",
+    "TaskTrace",
 ]
 
 
@@ -25,14 +38,17 @@ __all__ = [
 # Enums
 # ---------------------------------------------------------------------------
 
+
 class DeterminismLevel(str, Enum):
     """How strictly the system enforces fingerprint consistency."""
+
     STRICT = "strict"
     FLEXIBLE = "flexible"
 
 
 class LoopStrategy(str, Enum):
     """How the Actor-Critic loop decides to retry or stop."""
+
     FEEDBACK_DRIVEN = "feedback-driven"
     EXHAUSTIVE = "exhaustive"
     ONCE = "once"
@@ -40,6 +56,7 @@ class LoopStrategy(str, Enum):
 
 class ResourceType(str, Enum):
     """Supported resource URI protocols."""
+
     LOCAL_FILE = "local_file"
     SQL_QUERY = "sql_query"
     S3_OBJECT = "s3_object"
@@ -48,6 +65,7 @@ class ResourceType(str, Enum):
 
 class TaskStatus(str, Enum):
     """Lifecycle status of a task trace."""
+
     PENDING = "pending"
     RUNNING = "running"
     PAUSED = "paused"
@@ -59,8 +77,10 @@ class TaskStatus(str, Enum):
 # Resource & Security
 # ---------------------------------------------------------------------------
 
+
 class Resource(BaseModel):
     """A data source referenced by a Runfile."""
+
     id: str
     uri: str
     type: ResourceType
@@ -69,9 +89,8 @@ class Resource(BaseModel):
 
 class SecurityConfig(BaseModel):
     """Privacy and sandbox settings for a Runfile."""
-    masking_rules: List[str] = Field(
-        default_factory=lambda: ["emails", "api_keys"]
-    )
+
+    masking_rules: List[str] = Field(default_factory=lambda: ["emails", "api_keys"])
     local_sandbox: bool = True
 
 
@@ -79,16 +98,19 @@ class SecurityConfig(BaseModel):
 # Sampling & Determinism
 # ---------------------------------------------------------------------------
 
+
 class SamplingConfig(BaseModel):
     """Controls the 1% sampling gate before full execution."""
+
     enabled: bool = True
     mode: str = "percentage"  # "percentage" | "count"
-    value: float = 0.01       # 1% by default
-    auto_pause: bool = True   # pause after sampling for human approval
+    value: float = 0.01  # 1% by default
+    auto_pause: bool = True  # pause after sampling for human approval
 
 
 class Fingerprint(BaseModel):
     """Locked execution environment captured after successful sampling."""
+
     model_id: str
     prompt_hash: str
     parameters: Dict[str, Any] = Field(default_factory=dict)
@@ -99,6 +121,7 @@ class Fingerprint(BaseModel):
 # Loop Engineering
 # ---------------------------------------------------------------------------
 
+
 class ValidationRule(BaseModel):
     """A single exit criterion for the Actor-Critic loop.
 
@@ -108,6 +131,7 @@ class ValidationRule(BaseModel):
         ``llm_eval`` — LLM-based: the Critic evaluates via cheap model.
         ``code_eval`` — LLM-based: the Critic evaluates code quality.
     """
+
     type: str  # "regex" | "json_schema" | "llm_eval" | "code_eval"
     criteria: Any
     weight: float = 1.0
@@ -115,6 +139,7 @@ class ValidationRule(BaseModel):
 
 class LoopConfig(BaseModel):
     """Configures how a task node retries on failure."""
+
     strategy: LoopStrategy = LoopStrategy.FEEDBACK_DRIVEN
     max_attempts: int = 3
     exit_criteria: List[ValidationRule] = Field(default_factory=list)
@@ -129,6 +154,7 @@ class ModelTier(BaseModel):
     When the Actor fails to pass after ``escalate_after`` retries,
     the system automatically upgrades to the next tier's model.
     """
+
     model: str  # model name (e.g. "gpt-4o-mini")
     escalate_after: int = 2  # switch to next tier after N failed retries
     base_url: Optional[str] = None  # override API endpoint
@@ -138,8 +164,10 @@ class ModelTier(BaseModel):
 # Workflow
 # ---------------------------------------------------------------------------
 
+
 class PromptVersion(BaseModel):
     """A single version in the prompt lineage tree."""
+
     version_id: str
     hash: str
     template: str
@@ -155,6 +183,7 @@ class TaskNode(BaseModel):
     If ``skill_ref`` is set, this node delegates to a solidified .trs
     skill file instead of using ``actor_prompt_template`` directly.
     """
+
     id: str
     name: str
     depends_on: List[str] = Field(default_factory=list)
@@ -171,8 +200,10 @@ class TaskNode(BaseModel):
 # Top-level Runfile
 # ---------------------------------------------------------------------------
 
+
 class GovernanceConfig(BaseModel):
     """Budget and safety constraints."""
+
     max_usd: float = 10.0
     max_loop_count: Optional[int] = None
 
@@ -180,6 +211,7 @@ class GovernanceConfig(BaseModel):
 # ---------------------------------------------------------------------------
 # Top-level Runfile
 # ---------------------------------------------------------------------------
+
 
 class Runfile(BaseModel):
     """
@@ -189,6 +221,7 @@ class Runfile(BaseModel):
     *with what data* (resources), and *under what constraints* (security,
     sampling, governance).
     """
+
     model_config = ConfigDict(extra="forbid")
 
     version: str = "1.0"
@@ -206,8 +239,10 @@ class Runfile(BaseModel):
 # Execution Trace
 # ---------------------------------------------------------------------------
 
+
 class EvaluationResult(BaseModel):
     """Output from the Critic after evaluating an Actor's output."""
+
     passed: bool = False
     score: float = 0.0
     scores: Dict[str, float] = Field(default_factory=dict)
@@ -218,6 +253,7 @@ class EvaluationResult(BaseModel):
 
 class ExecutionIteration(BaseModel):
     """A single Actor-Critic attempt within a loop."""
+
     iteration_index: int
     input_payload: str
     output_content: str
@@ -230,6 +266,7 @@ class ExecutionIteration(BaseModel):
 
 class TaskTrace(BaseModel):
     """Full execution history for a single data item through a task node."""
+
     task_id: str
     status: TaskStatus = TaskStatus.PENDING
     iterations: List[ExecutionIteration] = Field(default_factory=list)

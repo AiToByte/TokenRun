@@ -30,7 +30,9 @@ class DuckDBGateway:
             )
         self._conn = duckdb.connect(db_path)
 
-    def query(self, sql: str, params: Optional[List[Any]] = None) -> List[Dict[str, Any]]:
+    def query(
+        self, sql: str, params: Optional[List[Any]] = None
+    ) -> List[Dict[str, Any]]:
         """Execute a SQL query and return results as a list of dicts."""
         result = self._conn.execute(sql, params or [])
         columns = [desc[0] for desc in result.description]
@@ -38,11 +40,15 @@ class DuckDBGateway:
 
     def register_csv(self, name: str, path: str) -> None:
         """Register a CSV file as a virtual table."""
-        self._conn.execute(f"CREATE TABLE {name} AS SELECT * FROM read_csv_auto('{path}')")
+        self._conn.execute(
+            f"CREATE TABLE {name} AS SELECT * FROM read_csv_auto('{path}')"
+        )
 
     def register_parquet(self, name: str, path: str) -> None:
         """Register a Parquet file as a virtual table."""
-        self._conn.execute(f"CREATE TABLE {name} AS SELECT * FROM read_parquet('{path}')")
+        self._conn.execute(
+            f"CREATE TABLE {name} AS SELECT * FROM read_parquet('{path}')"
+        )
 
     def close(self) -> None:
         """Close the connection."""

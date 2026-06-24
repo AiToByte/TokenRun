@@ -130,23 +130,25 @@ class TokenRunMCPServer:
 
         # Add a tool for each solidified skill
         for skill_id, skill in self._skills_cache.items():
-            tools.append({
-                "name": f"skill_{skill_id}",
-                "description": (
-                    f"Run the '{skill.get('name', skill_id)}' skill. "
-                    f"{skill.get('description', 'No description.')}"
-                ),
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "input": {
-                            "type": "string",
-                            "description": "Input data to process.",
+            tools.append(
+                {
+                    "name": f"skill_{skill_id}",
+                    "description": (
+                        f"Run the '{skill.get('name', skill_id)}' skill. "
+                        f"{skill.get('description', 'No description.')}"
+                    ),
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "input": {
+                                "type": "string",
+                                "description": "Input data to process.",
+                            },
                         },
+                        "required": ["input"],
                     },
-                    "required": ["input"],
-                },
-            })
+                }
+            )
 
         return tools
 
@@ -164,7 +166,9 @@ class TokenRunMCPServer:
             elif name == "get_skill":
                 return self._handle_get_skill(arguments["skill_id"])
             elif name == "run_skill":
-                return self._handle_run_skill(arguments["skill_id"], arguments["input_data"])
+                return self._handle_run_skill(
+                    arguments["skill_id"], arguments["input_data"]
+                )
             elif name == "create_mission":
                 return self._handle_create_mission(
                     arguments["runfile_path"],
@@ -185,14 +189,21 @@ class TokenRunMCPServer:
     def _handle_list_skills(self) -> Dict[str, Any]:
         skills_list = []
         for skill_id, skill in self._skills_cache.items():
-            skills_list.append({
-                "skill_id": skill_id,
-                "name": skill.get("name", "Unknown"),
-                "description": skill.get("description", ""),
-                "created_at": skill.get("created_at", ""),
-            })
+            skills_list.append(
+                {
+                    "skill_id": skill_id,
+                    "name": skill.get("name", "Unknown"),
+                    "description": skill.get("description", ""),
+                    "created_at": skill.get("created_at", ""),
+                }
+            )
         return {
-            "content": [{"type": "text", "text": json.dumps(skills_list, ensure_ascii=False, indent=2)}],
+            "content": [
+                {
+                    "type": "text",
+                    "text": json.dumps(skills_list, ensure_ascii=False, indent=2),
+                }
+            ],
         }
 
     def _handle_get_skill(self, skill_id: str) -> Dict[str, Any]:
@@ -200,7 +211,12 @@ class TokenRunMCPServer:
         if not skill:
             return self._error_response(f"Skill not found: {skill_id}")
         return {
-            "content": [{"type": "text", "text": json.dumps(skill, ensure_ascii=False, indent=2)}],
+            "content": [
+                {
+                    "type": "text",
+                    "text": json.dumps(skill, ensure_ascii=False, indent=2),
+                }
+            ],
         }
 
     def _handle_run_skill(self, skill_id: str, input_data: str) -> Dict[str, Any]:
@@ -214,32 +230,46 @@ class TokenRunMCPServer:
 
         # Return the prompt and config for the MCP client to execute
         return {
-            "content": [{
-                "type": "text",
-                "text": json.dumps({
-                    "action": "execute_skill",
-                    "skill_id": skill_id,
-                    "prompt": prompt.replace("{{ data }}", input_data),
-                    "model_config": skill.get("model_config", {}),
-                    "validation_rules": skill.get("validation_rules", []),
-                }, ensure_ascii=False, indent=2),
-            }],
+            "content": [
+                {
+                    "type": "text",
+                    "text": json.dumps(
+                        {
+                            "action": "execute_skill",
+                            "skill_id": skill_id,
+                            "prompt": prompt.replace("{{ data }}", input_data),
+                            "model_config": skill.get("model_config", {}),
+                            "validation_rules": skill.get("validation_rules", []),
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                }
+            ],
         }
 
-    def _handle_create_mission(self, runfile_path: str, priority: str) -> Dict[str, Any]:
+    def _handle_create_mission(
+        self, runfile_path: str, priority: str
+    ) -> Dict[str, Any]:
         path = Path(runfile_path)
         if not path.exists():
             return self._error_response(f"Runfile not found: {runfile_path}")
         return {
-            "content": [{
-                "type": "text",
-                "text": json.dumps({
-                    "action": "create_mission",
-                    "runfile_path": runfile_path,
-                    "priority": priority,
-                    "status": "ready",
-                }, ensure_ascii=False, indent=2),
-            }],
+            "content": [
+                {
+                    "type": "text",
+                    "text": json.dumps(
+                        {
+                            "action": "create_mission",
+                            "runfile_path": runfile_path,
+                            "priority": priority,
+                            "status": "ready",
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                }
+            ],
         }
 
     def _error_response(self, message: str) -> Dict[str, Any]:
@@ -267,7 +297,10 @@ class TokenRunMCPServer:
     def run(self, host: str = "0.0.0.0", port: int = 8080) -> None:
         """Start the MCP server (stdio mode for Claude Desktop compatibility)."""
         # MCP uses stdio by default — read JSON-RPC from stdin, write to stdout
-        print(f"TokenRun MCP Server started. Skills loaded: {len(self._skills_cache)}", file=sys.stderr)
+        print(
+            f"TokenRun MCP Server started. Skills loaded: {len(self._skills_cache)}",
+            file=sys.stderr,
+        )
         for line in sys.stdin:
             try:
                 request = json.loads(line.strip())
@@ -303,6 +336,7 @@ class TokenRunMCPServer:
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     """Run TokenRun as an MCP server."""

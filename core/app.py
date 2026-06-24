@@ -102,13 +102,22 @@ class TokenRunApp:
                 gw = FileGateway(path_str)
                 items = [f["content"] for f in gw.stream_files() if f.get("content")]
                 if items:
-                    self.telemetry.emit("RESOURCE_LOADED", "system", {
-                        "source": res.uri, "count": len(items),
-                    })
+                    self.telemetry.emit(
+                        "RESOURCE_LOADED",
+                        "system",
+                        {
+                            "source": res.uri,
+                            "count": len(items),
+                        },
+                    )
                     return items
-                self.telemetry.emit("WARNING", "system", {
-                    "message": f"目录 {path_str} 中无可读取的文本文件",
-                })
+                self.telemetry.emit(
+                    "WARNING",
+                    "system",
+                    {
+                        "message": f"目录 {path_str} 中无可读取的文本文件",
+                    },
+                )
 
         return self._demo_data()
 
@@ -162,10 +171,14 @@ class TokenRunApp:
                 sample_output=sample_output,
             )
             self.runfile.fingerprint = fp
-            self.telemetry.emit("FINGERPRINT_LOCKED", "system", {
-                "model": fp.model_id,
-                "prompt_hash": fp.prompt_hash,
-            })
+            self.telemetry.emit(
+                "FINGERPRINT_LOCKED",
+                "system",
+                {
+                    "model": fp.model_id,
+                    "prompt_hash": fp.prompt_hash,
+                },
+            )
 
         if sample_only:
             return {"phase": "sampling", "results": sample_results}
@@ -208,10 +221,16 @@ class TokenRunApp:
             node = self.runfile.workflow[0]
             current = self.lineage.get_current(node)
             if current:
-                self.lineage.record_stats(node, current.version_id, {
-                    "pass_rate": round(success / len(full_results), 4) if full_results else 0,
-                    "total_cost": self.ledger.report.total_cost_usd,
-                })
+                self.lineage.record_stats(
+                    node,
+                    current.version_id,
+                    {
+                        "pass_rate": round(success / len(full_results), 4)
+                        if full_results
+                        else 0,
+                        "total_cost": self.ledger.report.total_cost_usd,
+                    },
+                )
 
             skill_path = self.solidifier.distill(
                 task_name=self.runfile.name,
@@ -246,7 +265,9 @@ class TokenRunApp:
     # Skill reuse
     # ------------------------------------------------------------------
 
-    def run_from_skill(self, skill_id: str, data: Optional[List[str]] = None) -> Dict[str, Any]:
+    def run_from_skill(
+        self, skill_id: str, data: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
         """Load a solidified skill and prepare a mission from its locked parameters.
 
         Returns a summary dict with the skill configuration ready for execution.
@@ -296,11 +317,9 @@ class TokenRunApp:
             "AI 技术的应用场景不断扩展。然而，AI 的发展也面临着诸多挑战，包括数据隐私、算法偏见、"
             "能耗问题以及就业市场冲击。如何在推动技术进步的同时确保负责任的 AI 发展，"
             "是当前社会各界共同关注的核心议题。",
-
             "量子计算被认为是下一代计算技术的突破口。与传统计算机使用比特（0或1）不同，"
             "量子计算机利用量子比特的叠加态和纠缠特性，能够在特定问题上实现指数级加速。"
             "目前，谷歌、IBM、微软等科技巨头以及众多初创公司都在积极研发量子计算机。",
-
             "可持续发展已成为全球共识。面对气候变化、资源枯竭和生物多样性丧失等严峻挑战，"
             "各国政府和企业正在加速向绿色经济转型。可再生能源、循环经济、碳捕获技术"
             "以及绿色金融等领域的创新正在重塑全球经济格局。",
