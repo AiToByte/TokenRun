@@ -1,9 +1,9 @@
 """
-MCP Server — expose TokenRun skills as MCP tools.
+MCP Server — FastMCP-based implementation exposing TokenRun skills as MCP tools.
 
 Allows Claude Desktop and other MCP-compatible clients to directly
-call TokenRun's solidified skills.  Transforms TokenRun from a
-standalone app into an intelligent asset provider.
+call TokenRun's solidified skills.  Uses FastMCP SDK for clean
+decorator-based tool registration.
 
 Usage::
 
@@ -21,13 +21,32 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 __all__ = ["TokenRunMCPServer"]
+
+# ---------------------------------------------------------------------------
+# FastMCP import with graceful fallback
+# ---------------------------------------------------------------------------
+
+try:
+    from mcp.server.fastmcp import FastMCP
+
+    _FASTMCP_AVAILABLE = True
+except ImportError:
+    _FASTMCP_AVAILABLE = False
+
+
+# ---------------------------------------------------------------------------
+# TokenRunMCPServer (backward-compatible wrapper)
+# ---------------------------------------------------------------------------
 
 
 class TokenRunMCPServer:
     """MCP Server exposing TokenRun skills as callable tools.
+
+    Uses FastMCP SDK when available for clean decorator-based tool
+    registration.  Falls back to legacy JSON-RPC stdio mode.
 
     Parameters
     ----------
@@ -47,23 +66,121 @@ class TokenRunMCPServer:
         self._skills_cache: Dict[str, Dict[str, Any]] = {}
         self._load_skills()
 
+        # Create FastMCP server if available
+        self._mcp: Optional[Any] = None
+        if _FASTMCP_AVAILABLE:
+            self._mcp = FastMCP(
+                name="tokenrun",
+                version="0.2.0",
+                description=(
+                    "TokenRun — Industrial AI task execution. "
+                    "Exposes solidified skills as MCP tools."
+                ),
+            )
+            self._register_fastmcp_tools()
+
     # ------------------------------------------------------------------
-    # MCP Protocol Methods
+    # FastMCP tool registration
+    # ------------------------------------------------------------------
+
+    def _register_fastmcp_tools(self) -> None:
+        """Register tools using FastMCP decorators."""
+        if self._mcp is None:
+            return
+
+        skills_cache = self._skills_cache  # capture for closures
+
+        @self._mcp.tool()
+        async def list_skills() -> str:
+            """List all available solidified skills in the vault."""
+            skills_list = []
+            for skill_id, skill in skills_cache.items():
+                skills_list.append(
+                    {
+                        "skill_id": skill_id,
+                        "name": skill.get("name", "Unknown"),
+                        "description": skill.get("description", ""),
+                        "created_at": skill.get("created_at", ""),
+                    }
+                )
+            return json.dumps(skills_list, ensure_ascii=False, indent=2)
+
+        @self._mcp.tool()
+        async def get_skill(skill_id: str) -> str:
+            """Get details of a specific skill by ID."""
+            skill = skills_cache.get(skill_id)
+            if not skill:
+                return f"Error: Skill not found: {skill_id}"
+            return json.dumps(skill, ensure_ascii=False, indent=2)
+
+        @self._mcp.tool()
+        async def run_skill(skill_id: str, input_data: str) -> str:
+            """Execute a solidified skill with the given input data.
+
+            Returns the processed output with prompt, model config,
+            and validation rules.
+            """
+            skill = skills_cache.get(skill_id)
+            if not skill:
+                return f"Error: Skill not found: {skill_id}"
+
+            prompt = skill.get("optimized_prompt", "")
+            if not prompt:
+                return f"Error: Skill {skill_id} has no optimized prompt"
+
+            result = {
+                "action": "execute_skill",
+                "skill_id": skill_id,
+                "prompt": prompt.replace("{{ data }}", input_data),
+                "model_config": skill.get("model_config", {}),
+                "validation_rules": skill.get("validation_rules", []),
+            }
+            return json.dumps(result, ensure_ascii=False, indent=2)
+
+        @self._mcp.tool()
+        async def create_mission(runfile_path: str, priority: str = "normal") -> str:
+            """Create and start a new TokenRun mission from a Runfile.
+
+            Parameters
+            ----------
+            runfile_path:
+                Path to the YAML Runfile.
+            priority:
+                Task priority: high, normal, or low (low = Batch API for
+                cost savings).
+            """
+            path = Path(runfile_path)
+            if not path.exists():
+                return f"Error: Runfile not found: {runfile_path}"
+
+            result = {
+                "action": "create_mission",
+                "runfile_path": runfile_path,
+                "priority": priority,
+                "status": "ready",
+            }
+            return json.dumps(result, ensure_ascii=False, indent=2)
+
+    # ------------------------------------------------------------------
+    # MCP Protocol Methods (legacy JSON-RPC for non-FastMCP mode)
     # ------------------------------------------------------------------
 
     def get_server_info(self) -> Dict[str, Any]:
         """Return MCP server metadata."""
         return {
             "name": "tokenrun",
-            "version": "0.1.0",
-            "description": "TokenRun — Industrial AI task execution. Exposes solidified skills as MCP tools.",
+            "version": "0.2.0",
+            "description": (
+                "TokenRun — Industrial AI task execution. "
+                "Exposes solidified skills as MCP tools."
+            ),
             "capabilities": {
                 "tools": {},
             },
         }
 
     def list_tools(self) -> List[Dict[str, Any]]:
-        """Return available MCP tools."""
+        """Return available MCP tools (legacy method)."""
         tools = [
             {
                 "name": "list_skills",
@@ -90,7 +207,10 @@ class TokenRunMCPServer:
             },
             {
                 "name": "run_skill",
-                "description": "Execute a solidified skill with the given input data. Returns the processed output.",
+                "description": (
+                    "Execute a solidified skill with the given input data. "
+                    "Returns the processed output."
+                ),
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -119,7 +239,9 @@ class TokenRunMCPServer:
                         "priority": {
                             "type": "string",
                             "enum": ["high", "normal", "low"],
-                            "description": "Task priority (low = Batch API for cost savings).",
+                            "description": (
+                                "Task priority (low = Batch API for cost savings)."
+                            ),
                             "default": "normal",
                         },
                     },
@@ -153,7 +275,7 @@ class TokenRunMCPServer:
         return tools
 
     def call_tool(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle an MCP tool call.
+        """Handle an MCP tool call (legacy method).
 
         Returns
         -------
@@ -183,7 +305,7 @@ class TokenRunMCPServer:
             return self._error_response(str(exc))
 
     # ------------------------------------------------------------------
-    # Tool handlers
+    # Tool handlers (legacy)
     # ------------------------------------------------------------------
 
     def _handle_list_skills(self) -> Dict[str, Any]:
@@ -295,42 +417,56 @@ class TokenRunMCPServer:
                         pass
 
     def run(self, host: str = "0.0.0.0", port: int = 8080) -> None:
-        """Start the MCP server (stdio mode for Claude Desktop compatibility)."""
-        # MCP uses stdio by default — read JSON-RPC from stdin, write to stdout
-        print(
-            f"TokenRun MCP Server started. Skills loaded: {len(self._skills_cache)}",
-            file=sys.stderr,
-        )
-        for line in sys.stdin:
-            try:
-                request = json.loads(line.strip())
-                method = request.get("method", "")
-                params = request.get("params", {})
-                req_id = request.get("id")
+        """Start the MCP server.
 
-                if method == "initialize":
-                    result = self.get_server_info()
-                elif method == "tools/list":
-                    result = {"tools": self.list_tools()}
-                elif method == "tools/call":
-                    tool_name = params.get("name", "")
-                    tool_args = params.get("arguments", {})
-                    result = self.call_tool(tool_name, tool_args)
-                else:
-                    result = {"error": f"Unknown method: {method}"}
+        Uses FastMCP stdio transport if available, otherwise falls back
+        to legacy JSON-RPC stdio mode.
+        """
+        if self._mcp is not None:
+            # FastMCP mode — use stdio transport for Claude Desktop
+            print(
+                f"TokenRun MCP Server (FastMCP) started. "
+                f"Skills loaded: {len(self._skills_cache)}",
+                file=sys.stderr,
+            )
+            self._mcp.run(transport="stdio")
+        else:
+            # Legacy JSON-RPC stdio mode
+            print(
+                f"TokenRun MCP Server (legacy) started. "
+                f"Skills loaded: {len(self._skills_cache)}",
+                file=sys.stderr,
+            )
+            for line in sys.stdin:
+                try:
+                    request = json.loads(line.strip())
+                    method = request.get("method", "")
+                    params = request.get("params", {})
+                    req_id = request.get("id")
 
-                response = {"jsonrpc": "2.0", "id": req_id, "result": result}
-                print(json.dumps(response), flush=True)
+                    if method == "initialize":
+                        result = self.get_server_info()
+                    elif method == "tools/list":
+                        result = {"tools": self.list_tools()}
+                    elif method == "tools/call":
+                        tool_name = params.get("name", "")
+                        tool_args = params.get("arguments", {})
+                        result = self.call_tool(tool_name, tool_args)
+                    else:
+                        result = {"error": f"Unknown method: {method}"}
 
-            except json.JSONDecodeError:
-                continue
-            except Exception as exc:
-                error_resp = {
-                    "jsonrpc": "2.0",
-                    "id": None,
-                    "error": {"code": -1, "message": str(exc)},
-                }
-                print(json.dumps(error_resp), flush=True)
+                    response = {"jsonrpc": "2.0", "id": req_id, "result": result}
+                    print(json.dumps(response), flush=True)
+
+                except json.JSONDecodeError:
+                    continue
+                except Exception as exc:
+                    error_resp = {
+                        "jsonrpc": "2.0",
+                        "id": None,
+                        "error": {"code": -1, "message": str(exc)},
+                    }
+                    print(json.dumps(error_resp), flush=True)
 
 
 # ---------------------------------------------------------------------------

@@ -27,9 +27,10 @@ class TestSandboxExecutor:
 
     def test_execute_timeout(self, sandbox):
         sandbox.timeout = 1
-        result = sandbox.execute_python("import time; time.sleep(10)")
+        # Use a busy loop instead of import+sleep (imports are blocked in sandbox)
+        result = sandbox.execute_python("while True: pass")
         assert result["passed"] is False
-        assert "Timeout" in result["error"]
+        assert "Timeout" in result["error"] or "timeout" in result["error"].lower()
 
     def test_execute_with_variables(self, sandbox):
         result = sandbox.execute_python(
@@ -46,8 +47,8 @@ class TestSandboxExecutor:
         assert result["passed"] is False
 
     def test_execute_multiline_code(self, sandbox):
+        # Note: import is blocked in sandbox; json is available from preamble
         code = """
-import json
 data = {"a": 1, "b": 2}
 assert data["a"] + data["b"] == 3
 """

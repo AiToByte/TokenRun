@@ -3,6 +3,7 @@ Batch Provider — OpenAI Batch API integration for cost-efficient bulk processi
 
 Submits requests via the Batch API at 50% cost.  Results are returned
 within 24 hours.  Ideal for non-urgent bulk processing workloads.
+Includes retry logic for transient HTTP failures.
 
 Usage::
 
@@ -21,6 +22,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import httpx
+
+from core.resilience import RetryPolicy
 
 __all__ = ["BatchProvider", "BatchJob", "BatchRequest", "BatchResult"]
 
@@ -80,11 +83,15 @@ class BatchProvider:
         api_key: str,
         base_url: str = "https://api.openai.com/v1",
         poll_interval: float = 30.0,
+        max_retries: int = 3,
     ) -> None:
         self._api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.poll_interval = poll_interval
         self._client = httpx.AsyncClient(timeout=120.0)
+        self._retry_policy = RetryPolicy(
+            max_retries=max_retries, base_delay=1.0, max_delay=30.0
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -127,32 +134,40 @@ class BatchProvider:
 
         jsonl_content = "\n".join(lines)
 
-        # Upload the JSONL file
-        file_resp = await self._client.post(
-            f"{self.base_url}/files",
-            headers={"Authorization": f"Bearer {self._api_key}"},
-            data={"purpose": "batch"},
-            files={
-                "file": ("batch.jsonl", jsonl_content.encode(), "application/jsonl")
-            },
-        )
-        file_resp.raise_for_status()
+        # Upload the JSONL file (with retry)
+        async def _upload_file() -> Any:
+            resp = await self._client.post(
+                f"{self.base_url}/files",
+                headers={"Authorization": f"Bearer {self._api_key}"},
+                data={"purpose": "batch"},
+                files={
+                    "file": ("batch.jsonl", jsonl_content.encode(), "application/jsonl")
+                },
+            )
+            resp.raise_for_status()
+            return resp
+
+        file_resp = await self._retry_policy.execute(_upload_file)
         file_id = file_resp.json()["id"]
 
-        # Create the batch job
-        batch_resp = await self._client.post(
-            f"{self.base_url}/batches",
-            headers={
-                "Authorization": f"Bearer {self._api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "input_file_id": file_id,
-                "endpoint": "/v1/chat/completions",
-                "completion_window": completion_window,
-            },
-        )
-        batch_resp.raise_for_status()
+        # Create the batch job (with retry)
+        async def _create_batch() -> Any:
+            resp = await self._client.post(
+                f"{self.base_url}/batches",
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "input_file_id": file_id,
+                    "endpoint": "/v1/chat/completions",
+                    "completion_window": completion_window,
+                },
+            )
+            resp.raise_for_status()
+            return resp
+
+        batch_resp = await self._retry_policy.execute(_create_batch)
         return batch_resp.json()["id"]
 
     async def check_status(self, batch_id: str) -> BatchJob:
@@ -163,11 +178,16 @@ class BatchProvider:
         BatchJob
             Current status of the batch.
         """
-        resp = await self._client.get(
-            f"{self.base_url}/batches/{batch_id}",
-            headers={"Authorization": f"Bearer {self._api_key}"},
-        )
-        resp.raise_for_status()
+
+        async def _fetch() -> Any:
+            resp = await self._client.get(
+                f"{self.base_url}/batches/{batch_id}",
+                headers={"Authorization": f"Bearer {self._api_key}"},
+            )
+            resp.raise_for_status()
+            return resp
+
+        resp = await self._retry_policy.execute(_fetch)
         data = resp.json()
 
         return BatchJob(
@@ -237,17 +257,29 @@ class BatchProvider:
         if not batch_job.output_file_id:
             return []
 
-        resp = await self._client.get(
-            f"{self.base_url}/files/{batch_job.output_file_id}/content",
-            headers={"Authorization": f"Bearer {self._api_key}"},
-        )
-        resp.raise_for_status()
+        async def _download() -> Any:
+            resp = await self._client.get(
+                f"{self.base_url}/files/{batch_job.output_file_id}/content",
+                headers={"Authorization": f"Bearer {self._api_key}"},
+            )
+            resp.raise_for_status()
+            return resp
+
+        resp = await self._retry_policy.execute(_download)
 
         results: List[BatchResult] = []
         for line in resp.text.strip().split("\n"):
             if not line.strip():
                 continue
-            data = json.loads(line)
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError:
+                results.append(
+                    BatchResult(
+                        custom_id="unknown", error=f"JSON 解析失败: {line[:100]}"
+                    )
+                )
+                continue
             custom_id = data.get("custom_id", "")
             response_body = data.get("response", {}).get("body", {})
             choices = response_body.get("choices", [])
@@ -275,11 +307,16 @@ class BatchProvider:
 
     async def cancel(self, batch_id: str) -> BatchJob:
         """Cancel a running batch."""
-        resp = await self._client.post(
-            f"{self.base_url}/batches/{batch_id}/cancel",
-            headers={"Authorization": f"Bearer {self._api_key}"},
-        )
-        resp.raise_for_status()
+
+        async def _cancel() -> Any:
+            resp = await self._client.post(
+                f"{self.base_url}/batches/{batch_id}/cancel",
+                headers={"Authorization": f"Bearer {self._api_key}"},
+            )
+            resp.raise_for_status()
+            return resp
+
+        resp = await self._retry_policy.execute(_cancel)
         data = resp.json()
         return BatchJob(
             batch_id=data["id"],

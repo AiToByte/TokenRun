@@ -82,6 +82,8 @@ class TaskStatus(str, Enum):
 class Resource(BaseModel):
     """A data source referenced by a Runfile."""
 
+    model_config = ConfigDict(extra="forbid")
+
     id: str
     uri: str
     type: ResourceType
@@ -90,6 +92,8 @@ class Resource(BaseModel):
 
 class SecurityConfig(BaseModel):
     """Privacy and sandbox settings for a Runfile."""
+
+    model_config = ConfigDict(extra="forbid")
 
     masking_rules: List[str] = Field(default_factory=lambda: ["emails", "api_keys"])
     local_sandbox: bool = True
@@ -103,6 +107,8 @@ class SecurityConfig(BaseModel):
 class SamplingConfig(BaseModel):
     """Controls the 1% sampling gate before full execution."""
 
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = True
     mode: str = "percentage"  # "percentage" | "count"
     value: float = 0.01  # 1% by default
@@ -111,6 +117,8 @@ class SamplingConfig(BaseModel):
 
 class Fingerprint(BaseModel):
     """Locked execution environment captured after successful sampling."""
+
+    model_config = ConfigDict(extra="forbid")
 
     model_id: str
     prompt_hash: str
@@ -133,6 +141,8 @@ class ValidationRule(BaseModel):
         ``code_eval`` — LLM-based: the Critic evaluates code quality.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     type: str  # "regex" | "json_schema" | "llm_eval" | "code_eval"
     criteria: Any
     weight: float = 1.0
@@ -140,6 +150,8 @@ class ValidationRule(BaseModel):
 
 class LoopConfig(BaseModel):
     """Configures how a task node retries on failure."""
+
+    model_config = ConfigDict(extra="forbid")
 
     strategy: LoopStrategy = LoopStrategy.FEEDBACK_DRIVEN
     max_attempts: int = 3
@@ -160,6 +172,8 @@ class ModelTier(BaseModel):
     the system automatically upgrades to the next tier's model.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     model: str  # model name (e.g. "gpt-4o-mini")
     escalate_after: int = 2  # switch to next tier after N failed retries
     base_url: Optional[str] = None  # override API endpoint
@@ -172,6 +186,8 @@ class ModelTier(BaseModel):
 
 class PromptVersion(BaseModel):
     """A single version in the prompt lineage tree."""
+
+    model_config = ConfigDict(extra="forbid")
 
     version_id: str
     hash: str
@@ -188,6 +204,8 @@ class TaskNode(BaseModel):
     If ``skill_ref`` is set, this node delegates to a solidified .trs
     skill file instead of using ``actor_prompt_template`` directly.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     id: str
     name: str
@@ -208,6 +226,8 @@ class TaskNode(BaseModel):
 
 class GovernanceConfig(BaseModel):
     """Budget and safety constraints."""
+
+    model_config = ConfigDict(extra="forbid")
 
     max_usd: float = 10.0
     max_loop_count: Optional[int] = None
@@ -248,6 +268,8 @@ class Runfile(BaseModel):
 class EvaluationResult(BaseModel):
     """Output from the Critic after evaluating an Actor's output."""
 
+    model_config = ConfigDict(extra="forbid")
+
     passed: bool = False
     score: float = 0.0
     scores: Dict[str, float] = Field(default_factory=dict)
@@ -258,6 +280,8 @@ class EvaluationResult(BaseModel):
 
 class ExecutionIteration(BaseModel):
     """A single Actor-Critic attempt within a loop."""
+
+    model_config = ConfigDict(extra="forbid")
 
     iteration_index: int
     input_payload: str
@@ -271,6 +295,8 @@ class ExecutionIteration(BaseModel):
 
 class TaskTrace(BaseModel):
     """Full execution history for a single data item through a task node."""
+
+    model_config = ConfigDict(extra="forbid")
 
     task_id: str
     status: TaskStatus = TaskStatus.PENDING

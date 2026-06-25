@@ -16,7 +16,7 @@ class TestMCPServer:
         server = TokenRunMCPServer(vault_path=str(tmp_path))
         info = server.get_server_info()
         assert info["name"] == "tokenrun"
-        assert info["version"] == "0.1.0"
+        assert info["version"] == "0.2.0"
         assert "tools" in info["capabilities"]
 
     def test_list_tools(self, tmp_path):

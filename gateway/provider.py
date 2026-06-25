@@ -3,6 +3,7 @@ LLM Provider — generic async client for OpenAI-compatible APIs.
 
 Wraps httpx with smart retry logic (only retries transient failures)
 and returns a standardised ``LLMResponse`` for ledger integration.
+Supports optional circuit breaker for fault isolation.
 """
 
 from __future__ import annotations
@@ -51,6 +52,8 @@ class LLMProvider:
         Per-request timeout in seconds.
     max_retries:
         Number of retry attempts on transient failures.
+    circuit_breaker:
+        Optional :class:`~core.resilience.CircuitBreaker` for fault isolation.
     """
 
     def __init__(
@@ -60,6 +63,7 @@ class LLMProvider:
         model_name: str = "gpt-4o-mini",
         timeout: float = 60.0,
         max_retries: int = 3,
+        circuit_breaker: Any = None,
     ) -> None:
         self._api_key = api_key
         self.base_url = base_url.rstrip("/")
@@ -67,6 +71,7 @@ class LLMProvider:
         self.timeout = timeout
         self.max_retries = max_retries
         self._client = httpx.AsyncClient(timeout=timeout)
+        self._circuit_breaker = circuit_breaker
 
     # ------------------------------------------------------------------
     # Public API
@@ -100,6 +105,12 @@ class LLMProvider:
         if response_format is not None:
             payload["response_format"] = response_format
 
+        if self._circuit_breaker is not None:
+            return await self._circuit_breaker.call(self._request_inner, payload)
+        return await self._request_inner(payload)
+
+    async def _request_inner(self, payload: Dict[str, Any]) -> LLMResponse:
+        """Inner request method (called directly or via circuit breaker)."""
         last_exc: Optional[Exception] = None
         for attempt in range(self.max_retries):
             try:
@@ -137,8 +148,12 @@ class LLMProvider:
 
                 data = resp.json()
                 usage = data.get("usage", {})
+                try:
+                    content = data["choices"][0]["message"]["content"]
+                except (KeyError, IndexError) as exc:
+                    raise LLMProviderError(f"LLM 响应格式异常: {exc} — {data}") from exc
                 return LLMResponse(
-                    content=data["choices"][0]["message"]["content"],
+                    content=content,
                     prompt_tokens=usage.get("prompt_tokens", 0),
                     completion_tokens=usage.get("completion_tokens", 0),
                     model_name=data.get("model", payload["model"]),

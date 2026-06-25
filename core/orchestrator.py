@@ -172,7 +172,8 @@ class TROrchestrator:
             count = max(1, int(cfg.value))
         samples = data_stream[:count]
 
-        self.results = []
+        async with self._state_lock:
+            self.results = []
         print(f"\U0001f52c [采样阶段] 开始处理 {len(samples)} 个样本...")
         return await self._process_batch(samples)
 
@@ -218,7 +219,8 @@ class TROrchestrator:
         if priority == Priority.LOW:
             print("⏳ [低优先级] 任务将使用成本优化模式执行...")
 
-        self.results = []
+        async with self._state_lock:
+            self.results = []
         print(f"\U0001f3ed [生产阶段] 开始全量处理 {len(data_stream)} 条数据...")
         return await self._process_dag(data_stream)
 

@@ -237,17 +237,18 @@ class TokenLedger:
         score: float = 0.0,
     ) -> None:
         """Record value created by processing one item."""
-        self.value.items_processed += 1
-        if succeeded:
-            self.value.items_succeeded += 1
-        else:
-            self.value.items_failed += 1
-        self.value.words_processed += words
-        self.value.total_iterations += iterations
-        if score > 0:
-            self.value.score_sum += score
-            self.value.score_count += 1
-            self.value.avg_score = self.value.score_sum / self.value.score_count
+        with self._lock:
+            self.value.items_processed += 1
+            if succeeded:
+                self.value.items_succeeded += 1
+            else:
+                self.value.items_failed += 1
+            self.value.words_processed += words
+            self.value.total_iterations += iterations
+            if score > 0:
+                self.value.score_sum += score
+                self.value.score_count += 1
+                self.value.avg_score = self.value.score_sum / self.value.score_count
 
     def get_value_report(self) -> Dict[str, Any]:
         """Return a snapshot of value created."""

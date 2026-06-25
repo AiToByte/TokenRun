@@ -121,16 +121,23 @@ class SandboxExecutor:
                 var_lines += f"{k} = {json.dumps(v, ensure_ascii=False)}\n"
 
         # Security preamble: restrict dangerous builtins
-        security_preamble = ""
+        security_preamble = """
+# Security: disable dangerous builtins
+import builtins as _builtins
+_builtins.__import__ = None
+_builtins.exec = None
+_builtins.eval = None
+_builtins.compile = None
+"""
         if not self.allow_file_write:
-            security_preamble = """
+            security_preamble += """
 # Security: override open to block writes
-_builtins_open = open
+_builtins_open = _builtins.open
 def _safe_open(file, mode='r', **kwargs):
     if 'w' in mode or 'a' in mode or 'x' in mode:
         raise PermissionError("Sandbox: file write is blocked")
     return _builtins_open(file, mode, **kwargs)
-open = _safe_open
+_builtins.open = _safe_open
 """
 
         script = f"""import sys, json

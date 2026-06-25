@@ -44,7 +44,7 @@ class FileGateway:
         base_resolved = self.base_path.resolve()
         for file_path in sorted(self.base_path.glob(pattern)):
             resolved = file_path.resolve()
-            if not str(resolved).startswith(str(base_resolved)):
+            if not resolved.is_relative_to(base_resolved):
                 continue  # skip files outside base directory
             if file_path.is_file():
                 try:

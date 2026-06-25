@@ -169,13 +169,22 @@ class ActorCriticLoop:
                         model_name=node.loop_config.critic_model,
                     )
                     critic_to_use = TaskCritic(provider=local_provider)
-
-                eval_result = await critic_to_use.evaluate(
-                    task_name=node.name,
-                    input_data=safe_input,
-                    output_content=final_output,
-                    rules=llm_rules,
-                )
+                    try:
+                        eval_result = await critic_to_use.evaluate(
+                            task_name=node.name,
+                            input_data=safe_input,
+                            output_content=final_output,
+                            rules=llm_rules,
+                        )
+                    finally:
+                        await local_provider.close()
+                else:
+                    eval_result = await critic_to_use.evaluate(
+                        task_name=node.name,
+                        input_data=safe_input,
+                        output_content=final_output,
+                        rules=llm_rules,
+                    )
                 # Merge programmatic scores into LLM scores
                 eval_result.scores.update(prog_scores)
 
@@ -217,8 +226,7 @@ class ActorCriticLoop:
             weighted_score = self._compute_weighted_score(
                 eval_result.scores, node.loop_config.score_weights
             )
-            if weighted_score > 0.0:
-                eval_result.score = weighted_score
+            eval_result.score = weighted_score
             min_score = node.loop_config.min_score
             if eval_result.scores and weighted_score < min_score:
                 eval_result.passed = False
@@ -376,6 +384,7 @@ class ActorCriticLoop:
         all_scores = [primary_result.scores]
 
         async def _call_consensus(model_name: str) -> Optional[EvaluationResult]:
+            provider = None
             try:
                 from gateway.provider import LLMProvider
 
@@ -391,10 +400,12 @@ class ActorCriticLoop:
                     output_content=output,
                     rules=rules,
                 )
-                await provider.close()
                 return result
             except Exception:
                 return None
+            finally:
+                if provider is not None:
+                    await provider.close()
 
         # Parallel call to all consensus models
         results = await asyncio.gather(

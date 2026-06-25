@@ -19,8 +19,8 @@ __all__ = ["PrivacyRedactor"]
 _DEFAULT_PATTERNS: Dict[str, re.Pattern] = {
     "EMAIL": re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+"),
     "PHONE": re.compile(r"(?:\+?86)?1[3-9]\d{9}"),
-    "ID_CARD": re.compile(r"\d{17}[\dXx]"),
-    "IP_ADDR": re.compile(r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"),
+    "ID_CARD": re.compile(r"\b\d{17}[\dXx]\b"),
+    "IP_ADDR": re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
     "API_KEY": re.compile(r"sk-[a-zA-Z0-9]{20,}"),
 }
 

@@ -15,6 +15,11 @@ services:
       - ./logs:/app/logs
       - ./vault:/app/vault
       - ./runfiles:/app/runfiles
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   frontend:
     build:
@@ -25,4 +30,5 @@ services:
     environment:
       - NEXT_PUBLIC_API_URL=http://backend:8000
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
