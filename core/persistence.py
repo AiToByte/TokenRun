@@ -86,6 +86,62 @@ class TaskPersistence:
                 done = {row[0] for row in cur.fetchall()}
         return [uid for uid in all_ids if uid not in done]
 
+    def reset_to_pending(self, unit_id: str) -> bool:
+        """Reset a completed task back to pending status for replay.
+
+        Returns True if the task was found and reset, False otherwise.
+        """
+        with self._lock:
+            with sqlite3.connect(self.db_path) as conn:
+                cur = conn.execute(
+                    "UPDATE task_traces SET status = 'pending', "
+                    "final_output = '', updated_at = CURRENT_TIMESTAMP "
+                    "WHERE id = ?",
+                    (unit_id,),
+                )
+                return cur.rowcount > 0
+
+    def reset_multiple(self, unit_ids: List[str]) -> int:
+        """Reset multiple tasks to pending status for batch replay.
+
+        Returns the number of tasks actually reset.
+        """
+        if not unit_ids:
+            return 0
+        with self._lock:
+            with sqlite3.connect(self.db_path) as conn:
+                placeholders = ",".join("?" for _ in unit_ids)
+                cur = conn.execute(
+                    f"UPDATE task_traces SET status = 'pending', "
+                    f"final_output = '', updated_at = CURRENT_TIMESTAMP "
+                    f"WHERE id IN ({placeholders}) AND status = 'completed'",
+                    unit_ids,
+                )
+                return cur.rowcount
+
+    def get_completed_ids(self, unit_ids: Optional[List[str]] = None) -> List[str]:
+        """Return IDs of completed tasks.
+
+        Parameters
+        ----------
+        unit_ids:
+            If provided, only check these IDs. If None, return all completed.
+        """
+        with self._lock:
+            with sqlite3.connect(self.db_path) as conn:
+                if unit_ids:
+                    placeholders = ",".join("?" for _ in unit_ids)
+                    cur = conn.execute(
+                        f"SELECT id FROM task_traces WHERE id IN ({placeholders}) "
+                        "AND status = 'completed'",
+                        unit_ids,
+                    )
+                else:
+                    cur = conn.execute(
+                        "SELECT id FROM task_traces WHERE status = 'completed'"
+                    )
+                return [row[0] for row in cur.fetchall()]
+
     def get_all_traces(self) -> List[Dict[str, Any]]:
         """Return all stored traces (for solidification / analysis)."""
         with self._lock:

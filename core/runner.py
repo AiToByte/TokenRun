@@ -64,12 +64,14 @@ class ActorCriticLoop:
         persistence: Optional[TaskPersistence] = None,
         redactor: Optional[PrivacyRedactor] = None,
         model_providers: Optional[Dict[str, Any]] = None,
+        eval_judge: Optional[Any] = None,
     ) -> None:
         self.actor = actor
         self.critic = critic
         self.ledger = ledger
         self.persistence = persistence
         self.redactor = redactor
+        self.eval_judge = eval_judge  # Optional[EvalJudge]
         # model_providers: {"gpt-4o-mini": LLMProvider, "gpt-4o": LLMProvider, ...}
         self._model_providers = model_providers or {}
 
@@ -154,9 +156,22 @@ class ActorCriticLoop:
                 prog_rules, final_output
             )
 
-            # --- Critic phase (only for llm_eval rules) ---
+            # --- Critic phase: use EvalJudge if available, else TaskCritic ---
             eval_result: EvaluationResult
-            if llm_rules:
+            if self.eval_judge:
+                # Multi-dimensional evaluation via EvalJudge
+                judge_result = await self.eval_judge.evaluate(
+                    input_data=safe_input,
+                    output=final_output,
+                )
+                eval_result = EvaluationResult(
+                    passed=judge_result.passed,
+                    score=judge_result.weighted_score,
+                    scores={**judge_result.scores, **prog_scores},
+                    critique=judge_result.summary if not judge_result.passed else None,
+                    audit_cost=0,
+                )
+            elif llm_rules:
                 # Use node-specific critic if configured (local model strategy)
                 critic_to_use = self.critic
                 local_provider = self._resolve_critic_provider(node)

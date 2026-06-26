@@ -508,8 +508,21 @@ async def replay_from_iteration(
     mission_id: str,
     iteration: int = 0,
     new_prompt: Optional[str] = None,
-) -> Dict[str, str]:
-    """Replay a mission from a specific iteration, optionally with a new prompt."""
+    rollback: bool = False,
+) -> Dict[str, Any]:
+    """Replay a mission, optionally with timeline rollback.
+
+    Parameters
+    ----------
+    iteration:
+        Starting iteration (currently unused; reserved for future).
+    new_prompt:
+        If provided, switch to this prompt for the replay.
+    rollback:
+        If True, reset completed tasks to pending before replay.
+        This enables true "timeline rollback" — re-running tasks
+        with new parameters as if they hadn't been executed.
+    """
     m = _active_missions.get(mission_id)
     if not m:
         raise HTTPException(404, "Mission not found")
@@ -521,6 +534,7 @@ async def replay_from_iteration(
     m["replay_request"] = {
         "from_iteration": iteration,
         "new_prompt": new_prompt,
+        "rollback": rollback,
     }
     m["phase"] = "REPLAYING"
 
@@ -529,10 +543,15 @@ async def replay_from_iteration(
             "type": "REPLAY_REQUESTED",
             "mission_id": mission_id,
             "from_iteration": iteration,
+            "rollback": rollback,
         }
     )
 
-    return {"status": "replay_queued", "from_iteration": str(iteration)}
+    return {
+        "status": "replay_requested",
+        "mission_id": mission_id,
+        "rollback": rollback,
+    }
 
 
 # ---------------------------------------------------------------------------

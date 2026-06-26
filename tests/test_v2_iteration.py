@@ -233,7 +233,7 @@ class TestReplay:
             resp = await client.post("/missions/test-3/replay?iteration=2")
             assert resp.status_code == 200
             data = resp.json()
-            assert data["status"] == "replay_queued"
+            assert data["status"] == "replay_requested"
             assert _active_missions["test-3"]["replay_request"]["from_iteration"] == 2
 
         _active_missions.clear()

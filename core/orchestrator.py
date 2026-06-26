@@ -142,7 +142,12 @@ class TROrchestrator:
         self._pause_event.set()
         print("▶️ [编排器] 执行已恢复。")
 
-    def request_replay(self, new_prompt: Optional[str] = None) -> None:
+    def request_replay(
+        self,
+        new_prompt: Optional[str] = None,
+        rollback: bool = False,
+        rollback_ids: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
         """Signal a replay request from the API layer.
 
         Parameters
@@ -150,10 +155,34 @@ class TROrchestrator:
         new_prompt:
             If provided, the orchestrator will switch to this prompt
             for subsequent executions.
+        rollback:
+            If True, reset completed tasks to pending before replay.
+            This enables "timeline rollback" — re-running tasks with
+            new parameters as if they hadn't been executed yet.
+        rollback_ids:
+            Specific task IDs to reset. If None and rollback=True,
+            resets all completed tasks for the current mission.
+
+        Returns
+        -------
+        dict
+            Contains ``reset_count`` (number of tasks reset to pending).
         """
+        reset_count = 0
+        if rollback and self.engine.persistence:
+            if rollback_ids:
+                reset_count = self.engine.persistence.reset_multiple(rollback_ids)
+            else:
+                completed = self.engine.persistence.get_completed_ids()
+                if completed:
+                    reset_count = self.engine.persistence.reset_multiple(completed)
+            if reset_count > 0:
+                print(f"⏪ [编排器] 已将 {reset_count} 个任务重置为待处理状态。")
+
         self._replay_prompt = new_prompt
         self._replay_event.set()
         print("🔄 [编排器] 重放信号已发送。")
+        return {"reset_count": reset_count}
 
     # ------------------------------------------------------------------
     # Public API
