@@ -233,6 +233,25 @@ class GovernanceConfig(BaseModel):
     max_loop_count: Optional[int] = None
 
 
+class OutputSinkConfig(BaseModel):
+    """Configuration for automatic output persistence.
+
+    When configured in a Runfile, the orchestrator will automatically
+    write results to the specified sink after DAG completion.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = "file"  # "file" | "duckdb" | "vector"
+    output_dir: str = "output"  # for file sink
+    suffix: str = ".jsonl"  # for file sink
+    db_path: str = ":memory:"  # for duckdb sink
+    table_name: str = "results"  # for duckdb sink
+    collection_name: str = "tokenrun_results"  # for vector sink
+    backend: str = "chroma"  # for vector sink
+    host: Optional[str] = None  # for vector sink
+
+
 # ---------------------------------------------------------------------------
 # Top-level Runfile
 # ---------------------------------------------------------------------------
@@ -258,6 +277,7 @@ class Runfile(BaseModel):
     workflow: List[TaskNode] = Field(default_factory=list)
     fingerprint: Optional[Fingerprint] = None
     governance: GovernanceConfig = Field(default_factory=GovernanceConfig)
+    output_sink: Optional[OutputSinkConfig] = None
 
 
 # ---------------------------------------------------------------------------

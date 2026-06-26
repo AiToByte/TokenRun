@@ -57,6 +57,8 @@ class TROrchestrator:
         quality_threshold: float = 0.6,
         quality_window: int = 5,
         drift_action: str = "halt",  # "warn" | "halt" | "resample"
+        task_queue: Optional[Any] = None,  # Optional[TaskQueue]
+        cost_scheduler: Optional[Any] = None,  # Optional[CostScheduler]
     ) -> None:
         self.runfile = runfile
         self.engine = loop_engine
@@ -68,6 +70,10 @@ class TROrchestrator:
         self.self_healer = self_healer
         self.telemetry = telemetry
         self._total_iterations = 0  # for max_loop_count enforcement
+
+        # --- Task queue & cost scheduler (optional) ---
+        self._task_queue = task_queue
+        self._cost_scheduler = cost_scheduler
 
         # --- Quality circuit breaker ---
         self.quality_threshold = quality_threshold
@@ -251,7 +257,13 @@ class TROrchestrator:
         async with self._state_lock:
             self.results = []
         print(f"\U0001f3ed [生产阶段] 开始全量处理 {len(data_stream)} 条数据...")
-        return await self._process_dag(data_stream)
+        results = await self._process_dag(data_stream)
+
+        # --- Auto-persist via OutputSink if configured ---
+        if results and self.runfile.output_sink:
+            await self._persist_to_sink(results)
+
+        return results
 
     # ------------------------------------------------------------------
     # DAG execution
@@ -352,6 +364,39 @@ class TROrchestrator:
         """
         return sorted(data, key=lambda x: x[:50])
 
+    async def _persist_to_sink(self, results: List[Dict[str, Any]]) -> None:
+        """Write results to the configured OutputSink.
+
+        Creates the sink from the Runfile's ``output_sink`` config and
+        writes all successful results.  Errors are logged but do not
+        fail the mission.
+        """
+        from core.output_sink import create_sink
+
+        sink_config = self.runfile.output_sink
+        if not sink_config:
+            return
+
+        # Convert Pydantic model to dict for create_sink
+        config_dict = sink_config.model_dump(exclude_none=True)
+        sink = None
+        try:
+            sink = create_sink(config_dict)
+            if sink:
+                # Write successful results
+                successful = [r for r in results if r.get("status") == "success"]
+                if successful:
+                    sink.write(successful)
+                    print(
+                        f"💾 [输出汇] 已将 {len(successful)} 条结果写入 "
+                        f"{sink_config.type} Sink"
+                    )
+        except Exception as exc:
+            print(f"⚠️ [输出汇] 写入失败: {exc}")
+        finally:
+            if sink:
+                sink.close()
+
     async def spot_check(
         self, results: List[Dict[str, Any]], sample_rate: float = 0.05
     ) -> List[Dict[str, Any]]:
@@ -437,6 +482,7 @@ class TROrchestrator:
         self,
         batch: List[str],
         node_override: Optional[TaskNode] = None,
+        priority: Priority = Priority.NORMAL,
     ) -> List[Dict[str, Any]]:
         # --- Replay signal: apply once before dispatching all tasks ---
         if self._replay_event.is_set():
@@ -447,10 +493,49 @@ class TROrchestrator:
                     self._replay_prompt = None
                 self._replay_event.clear()
 
+        # --- Route through TaskQueue if available ---
+        if self._task_queue:
+            return await self._process_batch_via_queue(batch, node_override, priority)
+
         tasks = [
             self._bounded_execute(item, node_override=node_override) for item in batch
         ]
         return await asyncio.gather(*tasks, return_exceptions=False)
+
+    async def _process_batch_via_queue(
+        self,
+        batch: List[str],
+        node_override: Optional[TaskNode],
+        priority: Priority,
+    ) -> List[Dict[str, Any]]:
+        """Route batch through TaskQueue for priority-aware scheduling.
+
+        HIGH priority tasks preempt NORMAL/LOW.  LOW priority tasks may
+        be routed to Batch API by the CostScheduler.
+        """
+        task_ids = []
+        for i, item in enumerate(batch):
+            task_id = f"task-{i}-{hash(item) & 0xFFFF:04x}"
+            await self._task_queue.submit(
+                task_id,
+                self._bounded_execute,
+                item,
+                node_override=node_override,
+                priority=priority,
+            )
+            task_ids.append(task_id)
+
+        # Wait for all tasks to complete
+        results = []
+        for task_id in task_ids:
+            try:
+                result = await self._task_queue.wait(task_id, timeout=600.0)
+                results.append(result)
+            except Exception as exc:
+                results.append(
+                    {"status": "error", "final_output": None, "error": str(exc)}
+                )
+        return results
 
     async def _bounded_execute(
         self,
