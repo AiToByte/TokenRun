@@ -10,8 +10,8 @@ from __future__ import annotations
 
 
 from jinja2 import TemplateSyntaxError, UndefinedError
-from jinja2.sandbox import SandboxedEnvironment
 
+from core.jinja_env import get_template_env
 from gateway.provider import LLMProvider, LLMResponse
 
 __all__ = ["TaskActor"]
@@ -60,7 +60,7 @@ class TaskActor:
             If the Jinja2 template has syntax errors or undefined variables.
         """
         try:
-            env = SandboxedEnvironment()
+            env = get_template_env()
             template = env.from_string(template_str)
             rendered = template.render(data=data)
         except (TemplateSyntaxError, UndefinedError) as exc:
