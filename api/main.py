@@ -39,9 +39,8 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 
 _active_missions: Dict[str, Dict[str, Any]] = {}
-_ws_clients: List[WebSocket] = []
+_ws_clients: Dict[WebSocket, Dict[str, Any]] = {}  # ws → {mission_id, level}
 _mission_events: Dict[str, asyncio.Event] = {}  # mission_id → approval event
-_ws_subscriptions: Dict[str, List[WebSocket]] = {}  # mission_id → subscribers
 
 # ---------------------------------------------------------------------------
 # Request / Response models
@@ -535,12 +534,17 @@ async def replay_from_iteration(
 async def websocket_endpoint(ws: WebSocket) -> None:
     """Real-time event stream for the Cockpit UI.
 
-    Supports Pub/Sub: client can send {"action": "subscribe", "mission_id": "..."}
-    to receive only events for that mission.
+    Supports Pub/Sub: client can send
+    ``{"action": "subscribe", "mission_id": "...", "level": 2}``
+    to receive only events for that mission at the specified telemetry level.
+
+    Telemetry levels:
+        1 = progress (STATUS_UPDATE)
+        2 = node detail (+ TRACE_EVENT per node)
+        3 = full trace (+ every iteration)
     """
     await ws.accept()
-    _ws_clients.append(ws)
-    subscribed_mission: Optional[str] = None
+    _ws_clients[ws] = {"mission_id": None, "level": 1}
     try:
         while True:
             data = await ws.receive_text()
@@ -549,56 +553,59 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 action = msg.get("action")
                 if action == "subscribe":
                     mission_id = msg.get("mission_id")
+                    level = msg.get("level", 2)
                     if mission_id:
-                        if mission_id not in _ws_subscriptions:
-                            _ws_subscriptions[mission_id] = []
-                        _ws_subscriptions[mission_id].append(ws)
-                        subscribed_mission = mission_id
+                        _ws_clients[ws] = {
+                            "mission_id": mission_id,
+                            "level": min(max(int(level), 1), 3),
+                        }
                         await ws.send_json(
-                            {"type": "subscribed", "mission_id": mission_id}
+                            {
+                                "type": "subscribed",
+                                "mission_id": mission_id,
+                                "level": _ws_clients[ws]["level"],
+                            }
                         )
                 elif action == "unsubscribe":
-                    if subscribed_mission and subscribed_mission in _ws_subscriptions:
-                        _ws_subscriptions[subscribed_mission] = [
-                            c for c in _ws_subscriptions[subscribed_mission] if c != ws
-                        ]
-                        subscribed_mission = None
+                    _ws_clients[ws] = {"mission_id": None, "level": 1}
+                    await ws.send_json({"type": "unsubscribed"})
             except json.JSONDecodeError:
                 pass  # ignore non-JSON messages
     except WebSocketDisconnect:
-        _ws_clients.remove(ws)
-        if subscribed_mission and subscribed_mission in _ws_subscriptions:
-            _ws_subscriptions[subscribed_mission] = [
-                c for c in _ws_subscriptions[subscribed_mission] if c != ws
-            ]
+        _ws_clients.pop(ws, None)
 
 
 async def _broadcast(message: Dict[str, Any]) -> None:
-    """Send a message to all connected WebSocket clients.
+    """Send a message to connected WebSocket clients with filtering.
 
-    Also sends to mission-specific subscribers if mission_id is present.
+    Filtering rules:
+    - If a client is subscribed to a mission, only send events for that mission.
+    - Respect each client's telemetry level (L1/L2/L3).
+    - Unsubscribed clients receive all L1 events (progress overview).
     """
     dead: set = set()
+    event_level = message.get("level", 1)
+    event_mission = message.get("mission_id") or message.get("task_id")
 
-    # Broadcast to all global clients
-    for ws in _ws_clients:
+    for ws, meta in list(_ws_clients.items()):
         try:
+            client_mission = meta.get("mission_id")
+            client_level = meta.get("level", 1)
+
+            # If client subscribed to a mission, only send that mission's events
+            if client_mission and event_mission and client_mission != event_mission:
+                continue
+
+            # Respect telemetry level
+            if event_level > client_level:
+                continue
+
             await ws.send_json(message)
         except Exception:
             dead.add(ws)
 
-    # Send to mission-specific subscribers
-    mission_id = message.get("mission_id")
-    if mission_id and mission_id in _ws_subscriptions:
-        for ws in _ws_subscriptions[mission_id]:
-            try:
-                await ws.send_json(message)
-            except Exception:
-                dead.add(ws)
-
     for ws in dead:
-        if ws in _ws_clients:
-            _ws_clients.remove(ws)
+        _ws_clients.pop(ws, None)
 
 
 # ---------------------------------------------------------------------------

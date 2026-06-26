@@ -5,14 +5,18 @@ Sensitive values are replaced with ``[[TR_{LABEL}_{N}]]`` placeholders
 before text leaves the device.  The mapping table lives only in memory
 and is destroyed when the task completes, so the cloud never sees real
 values and has no key to reverse them.
+
+For production use with crash recovery, use :class:`PersistentRedactor`
+which persists the vault mapping to SQLite alongside task traces.
 """
 
 from __future__ import annotations
 
 import re
+import sqlite3
 from typing import Dict, List, Optional
 
-__all__ = ["PrivacyRedactor"]
+__all__ = ["PrivacyRedactor", "PersistentRedactor"]
 
 
 # Pre-compiled patterns for common PII categories.
@@ -135,3 +139,194 @@ class PrivacyRedactor:
         self._vault[placeholder] = value
         self._reverse_vault[value] = placeholder
         return placeholder
+
+
+# ---------------------------------------------------------------------------
+# Persistent Redactor (crash-safe vault storage)
+# ---------------------------------------------------------------------------
+
+
+class PersistentRedactor(PrivacyRedactor):
+    """Privacy redactor with SQLite-backed vault for crash recovery.
+
+    The vault mapping is persisted to a ``privacy_vault`` table alongside
+    task traces.  On restart after a crash, mappings can be restored so
+    that previously masked text can still be unmasked.
+
+    Parameters
+    ----------
+    db_path:
+        Path to the SQLite database (default ``tokenrun_traces.db``).
+    task_id:
+        Identifier for the current task.  Used to namespace vault entries.
+    patterns:
+        Custom PII patterns (overrides defaults).
+    rules:
+        Subset of pattern labels to apply.
+    """
+
+    def __init__(
+        self,
+        db_path: str = "tokenrun_traces.db",
+        task_id: str = "",
+        patterns: Optional[Dict[str, re.Pattern]] = None,
+        rules: Optional[List[str]] = None,
+    ) -> None:
+        super().__init__(patterns=patterns, rules=rules)
+        self._db_path = db_path
+        self._task_id = task_id
+        self._init_db()
+
+    def _init_db(self) -> None:
+        """Create the privacy_vault table if it doesn't exist."""
+        conn = sqlite3.connect(self._db_path)
+        try:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS privacy_vault (
+                    task_id    TEXT NOT NULL,
+                    placeholder TEXT NOT NULL,
+                    original_value TEXT NOT NULL,
+                    label      TEXT NOT NULL,
+                    PRIMARY KEY (task_id, placeholder)
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_vault_task ON privacy_vault(task_id)"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def set_task_id(self, task_id: str) -> None:
+        """Set the task ID for subsequent mask/unmask operations."""
+        self._task_id = task_id
+
+    def mask(self, text: str) -> str:
+        """Mask PII and persist the mapping to SQLite.
+
+        Parameters
+        ----------
+        text:
+            Input text containing potential PII.
+
+        Returns
+        -------
+        str
+            Text with PII replaced by placeholders.
+        """
+        result = super().mask(text)
+
+        # Persist any new vault entries to the database
+        if self._vault and self._task_id:
+            self._persist_vault()
+
+        return result
+
+    def _persist_vault(self) -> None:
+        """Write current vault entries to the database."""
+        conn = sqlite3.connect(self._db_path)
+        try:
+            for placeholder, original in self._vault.items():
+                # Extract label from placeholder: [[TR_EMAIL_1]] → EMAIL
+                label = "UNKNOWN"
+                if placeholder.startswith("[[TR_") and placeholder.endswith("]]"):
+                    parts = placeholder[5:-2].rsplit("_", 1)
+                    if parts:
+                        label = parts[0]
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO privacy_vault
+                        (task_id, placeholder, original_value, label)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (self._task_id, placeholder, original, label),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def restore_from_db(self, task_id: Optional[str] = None) -> int:
+        """Restore vault mappings from the database.
+
+        Parameters
+        ----------
+        task_id:
+            Task ID to restore.  If None, uses the current ``self._task_id``.
+
+        Returns
+        -------
+        int
+            Number of entries restored.
+        """
+        tid = task_id or self._task_id
+        if not tid:
+            return 0
+
+        conn = sqlite3.connect(self._db_path)
+        try:
+            cursor = conn.execute(
+                "SELECT placeholder, original_value FROM privacy_vault WHERE task_id = ?",
+                (tid,),
+            )
+            count = 0
+            for placeholder, original in cursor.fetchall():
+                if placeholder not in self._vault:
+                    self._vault[placeholder] = original
+                    self._reverse_vault[original] = placeholder
+                    count += 1
+            # Update counter to avoid collisions
+            if count > 0:
+                self._counter = max(self._counter, len(self._vault))
+            return count
+        finally:
+            conn.close()
+
+    def clear_task_vault(self, task_id: Optional[str] = None) -> None:
+        """Remove vault entries for a specific task from the database.
+
+        Parameters
+        ----------
+        task_id:
+            Task ID to clear.  If None, uses the current ``self._task_id``.
+        """
+        tid = task_id or self._task_id
+        if not tid:
+            return
+
+        conn = sqlite3.connect(self._db_path)
+        try:
+            conn.execute("DELETE FROM privacy_vault WHERE task_id = ?", (tid,))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def clear_vault(self) -> None:
+        """Clear both in-memory and persisted vault."""
+        if self._task_id:
+            self.clear_task_vault(self._task_id)
+        super().clear_vault()
+
+    def get_vault_stats(self) -> Dict[str, int]:
+        """Return vault statistics.
+
+        Returns
+        -------
+        dict
+            Contains ``memory_size`` (in-memory entries) and
+            ``db_size`` (persisted entries for current task).
+        """
+        memory_size = len(self._vault)
+        db_size = 0
+        if self._task_id:
+            conn = sqlite3.connect(self._db_path)
+            try:
+                cursor = conn.execute(
+                    "SELECT COUNT(*) FROM privacy_vault WHERE task_id = ?",
+                    (self._task_id,),
+                )
+                db_size = cursor.fetchone()[0]
+            finally:
+                conn.close()
+        return {"memory_size": memory_size, "db_size": db_size}

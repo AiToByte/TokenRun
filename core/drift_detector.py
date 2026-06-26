@@ -11,6 +11,8 @@ from __future__ import annotations
 import hashlib
 from typing import Any, Dict, List, Optional
 
+from jinja2.sandbox import SandboxedEnvironment
+
 from core.actor import TaskActor
 
 __all__ = ["DriftDetector", "SemanticDriftDetector", "DriftAlert"]
@@ -94,8 +96,6 @@ class DriftDetector:
             expected_hash = sample.get("expected_output_hash", "")
 
             try:
-                from jinja2.sandbox import SandboxedEnvironment
-
                 env = SandboxedEnvironment()
                 template = env.from_string(prompt_template)
                 rendered = template.render(data=input_text)
@@ -227,8 +227,6 @@ class SemanticDriftDetector:
             golden_emb = self._golden_embeddings[i]
 
             try:
-                from jinja2.sandbox import SandboxedEnvironment
-
                 env = SandboxedEnvironment()
                 template = env.from_string(prompt_template)
                 rendered = template.render(data=input_text)

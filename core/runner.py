@@ -159,15 +159,8 @@ class ActorCriticLoop:
             if llm_rules:
                 # Use node-specific critic if configured (local model strategy)
                 critic_to_use = self.critic
-                if node.loop_config.critic_model:
-                    from gateway.provider import LLMProvider as LP
-
-                    local_provider = LP(
-                        api_key=self.critic.provider._api_key,
-                        base_url=node.loop_config.critic_base_url
-                        or self.critic.provider.base_url,
-                        model_name=node.loop_config.critic_model,
-                    )
+                local_provider = self._resolve_critic_provider(node)
+                if local_provider:
                     critic_to_use = TaskCritic(provider=local_provider)
                     try:
                         eval_result = await critic_to_use.evaluate(
@@ -333,6 +326,46 @@ class ActorCriticLoop:
             "history": iterations,
             "trace": trace,
         }
+
+    # ------------------------------------------------------------------
+    # Critic provider resolution
+    # ------------------------------------------------------------------
+
+    def _resolve_critic_provider(self, node: TaskNode) -> Optional[Any]:
+        """Resolve the critic provider for a node.
+
+        Supports:
+        - ``ollama/<model>`` prefix: auto-configures to local Ollama API
+        - Custom ``critic_model`` + ``critic_base_url``: direct override
+        - None: use the default critic
+
+        Returns
+        -------
+        LLMProvider or None
+            A new provider if override is needed, else None.
+        """
+        critic_model = node.loop_config.critic_model
+        if not critic_model:
+            return None
+
+        from gateway.provider import LLMProvider
+
+        # Ollama auto-detection
+        if critic_model.startswith("ollama/"):
+            ollama_model = critic_model.removeprefix("ollama/")
+            base_url = node.loop_config.critic_base_url or "http://localhost:11434/v1"
+            return LLMProvider(
+                api_key="ollama",
+                base_url=base_url,
+                model_name=ollama_model,
+            )
+
+        # Direct custom provider
+        return LLMProvider(
+            api_key=self.critic.provider._api_key,
+            base_url=node.loop_config.critic_base_url or self.critic.provider.base_url,
+            model_name=critic_model,
+        )
 
     # ------------------------------------------------------------------
     # Dynamic model routing
