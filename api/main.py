@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -48,14 +48,18 @@ _mission_events: Dict[str, asyncio.Event] = {}  # mission_id → approval event
 
 
 class MissionCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     runfile_path: str = "runfiles/test_mission.yaml"
     sample_only: bool = False
     priority: str = "normal"  # "high" | "normal" | "low"
 
 
 class MissionStatus(BaseModel):
+    model_config = {"extra": "forbid"}
+
     mission_id: str
-    status: str  # "pending" | "sampling" | "awaiting_approval" | "running" | "completed" | "failed"
+    status: str
     phase: str
     progress: float
     cost_usd: float
@@ -64,16 +68,22 @@ class MissionStatus(BaseModel):
 
 
 class ApprovalRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
     action: str  # "approve" | "revise" | "abort"
     new_prompt: Optional[str] = None
 
 
 class ReviseRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
     new_prompt: str
     change_log: str = ""
 
 
 class SkillInfo(BaseModel):
+    model_config = {"extra": "forbid"}
+
     skill_id: str
     name: str
     created_at: str
@@ -553,11 +563,14 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 action = msg.get("action")
                 if action == "subscribe":
                     mission_id = msg.get("mission_id")
-                    level = msg.get("level", 2)
+                    try:
+                        level = min(max(int(msg.get("level", 2)), 1), 3)
+                    except (ValueError, TypeError):
+                        level = 2
                     if mission_id:
                         _ws_clients[ws] = {
                             "mission_id": mission_id,
-                            "level": min(max(int(level), 1), 3),
+                            "level": level,
                         }
                         await ws.send_json(
                             {
@@ -569,9 +582,11 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 elif action == "unsubscribe":
                     _ws_clients[ws] = {"mission_id": None, "level": 1}
                     await ws.send_json({"type": "unsubscribed"})
-            except json.JSONDecodeError:
-                pass  # ignore non-JSON messages
-    except WebSocketDisconnect:
+            except (json.JSONDecodeError, ValueError):
+                pass  # ignore non-JSON messages and invalid values
+    except Exception:
+        pass  # WebSocket errors, etc.
+    finally:
         _ws_clients.pop(ws, None)
 
 
@@ -582,9 +597,25 @@ async def _broadcast(message: Dict[str, Any]) -> None:
     - If a client is subscribed to a mission, only send events for that mission.
     - Respect each client's telemetry level (L1/L2/L3).
     - Unsubscribed clients receive all L1 events (progress overview).
+
+    Telemetry levels (auto-inferred from event type if not explicit):
+        L1: STATUS_UPDATE, ERROR, APPROVAL_REQUIRED
+        L2: QUALITY_HALT, DRIFT_HALT, DRIFT_RESAMPLE, HEALING_SUGGESTION, SPOT_CHECK
+        L3: TRACE_EVENT
     """
     dead: set = set()
-    event_level = message.get("level", 1)
+
+    # Auto-infer level from event type if not explicitly set
+    event_level = message.get("level")
+    if event_level is None:
+        event_type = message.get("type", "")
+        if event_type in ("STATUS_UPDATE", "ERROR", "APPROVAL_REQUIRED"):
+            event_level = 1
+        elif event_type == "TRACE_EVENT":
+            event_level = 3
+        else:
+            event_level = 2  # QUALITY_HALT, DRIFT_*, HEALING_*, SPOT_CHECK
+
     event_mission = message.get("mission_id") or message.get("task_id")
 
     for ws, meta in list(_ws_clients.items()):

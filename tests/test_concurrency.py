@@ -5,13 +5,12 @@ import pytest
 import threading
 from unittest.mock import AsyncMock, MagicMock
 
-from core.ledger import BudgetExceededError, TokenLedger
+from core.ledger import TokenLedger
 from core.models import LoopConfig, Runfile, TaskNode, ValidationRule
 from core.orchestrator import TROrchestrator
 from core.persistence import TaskPersistence
 from core.runner import ActorCriticLoop
 from gateway.privacy import PrivacyRedactor
-from gateway.provider import LLMResponse
 
 
 def _mock_engine(result_status="success"):
@@ -142,9 +141,11 @@ class TestPrivacyConcurrency:
             t.join()
 
         assert errors == []
-        # Each email should be masked
+        # Each email should be masked — no raw @ in masked output
         for original, masked in results:
-            assert "@" not in masked or "[[TR_EMAIL_" in masked
+            if "@" in original:
+                assert "@" not in masked, f"Email not masked: {masked}"
+                assert "[[TR_EMAIL_" in masked, f"No placeholder in: {masked}"
 
 
 class TestPauseBlocksExecution:
@@ -182,5 +183,5 @@ class TestPauseBlocksExecution:
 
         # Resume
         orch.resume()
-        result = await task
+        await task
         assert call_count == 2  # now both should execute

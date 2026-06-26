@@ -175,6 +175,7 @@ class PersistentRedactor(PrivacyRedactor):
         super().__init__(patterns=patterns, rules=rules)
         self._db_path = db_path
         self._task_id = task_id
+        self._pending_entries: List[tuple[str, str, str]] = []  # (placeholder, value, label)
         self._init_db()
 
     def _init_db(self) -> None:
@@ -204,37 +205,35 @@ class PersistentRedactor(PrivacyRedactor):
         self._task_id = task_id
 
     def mask(self, text: str) -> str:
-        """Mask PII and persist the mapping to SQLite.
-
-        Parameters
-        ----------
-        text:
-            Input text containing potential PII.
-
-        Returns
-        -------
-        str
-            Text with PII replaced by placeholders.
-        """
+        """Mask PII and persist new mappings to SQLite."""
         result = super().mask(text)
 
-        # Persist any new vault entries to the database
-        if self._vault and self._task_id:
-            self._persist_vault()
+        # Persist only newly-added vault entries
+        if self._pending_entries and self._task_id:
+            self._flush_pending()
 
         return result
 
-    def _persist_vault(self) -> None:
-        """Write current vault entries to the database."""
+    def _get_or_create_placeholder(self, label: str, value: str) -> str:
+        """Override to track new entries for incremental persistence."""
+        existing = self._reverse_vault.get(value)
+        if existing is not None:
+            return existing
+        self._counter += 1
+        placeholder = f"[[TR_{label}_{self._counter}]]"
+        self._vault[placeholder] = value
+        self._reverse_vault[value] = placeholder
+        # Track for batch persistence
+        self._pending_entries.append((placeholder, value, label))
+        return placeholder
+
+    def _flush_pending(self) -> None:
+        """Write only newly-added entries to the database."""
+        if not self._pending_entries:
+            return
         conn = sqlite3.connect(self._db_path)
         try:
-            for placeholder, original in self._vault.items():
-                # Extract label from placeholder: [[TR_EMAIL_1]] → EMAIL
-                label = "UNKNOWN"
-                if placeholder.startswith("[[TR_") and placeholder.endswith("]]"):
-                    parts = placeholder[5:-2].rsplit("_", 1)
-                    if parts:
-                        label = parts[0]
+            for placeholder, original, label in self._pending_entries:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO privacy_vault
@@ -244,8 +243,46 @@ class PersistentRedactor(PrivacyRedactor):
                     (self._task_id, placeholder, original, label),
                 )
             conn.commit()
+            self._pending_entries.clear()
+        except Exception:
+            conn.rollback()
+            raise
         finally:
             conn.close()
+
+    def _persist_vault(self) -> None:
+        """Write current vault entries to the database (full sync)."""
+        conn = sqlite3.connect(self._db_path)
+        try:
+            for placeholder, original in self._vault.items():
+                label = self._extract_label(placeholder)
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO privacy_vault
+                        (task_id, placeholder, original_value, label)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (self._task_id, placeholder, original, label),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _extract_label(placeholder: str) -> str:
+        """Extract label from placeholder: [[TR_EMAIL_1]] → EMAIL."""
+        if placeholder.startswith("[[TR_") and placeholder.endswith("]]"):
+            # Remove [[TR_ prefix and ]] suffix → "EMAIL_1"
+            inner = placeholder[5:-2]
+            # rsplit to remove the numeric suffix → ["EMAIL", "1"]
+            parts = inner.rsplit("_", 1)
+            if len(parts) == 2:
+                return parts[0]  # "EMAIL"
+            return inner
+        return "UNKNOWN"
 
     def restore_from_db(self, task_id: Optional[str] = None) -> int:
         """Restore vault mappings from the database.
@@ -271,17 +308,35 @@ class PersistentRedactor(PrivacyRedactor):
                 (tid,),
             )
             count = 0
+            max_counter = self._counter
             for placeholder, original in cursor.fetchall():
                 if placeholder not in self._vault:
                     self._vault[placeholder] = original
                     self._reverse_vault[original] = placeholder
                     count += 1
-            # Update counter to avoid collisions
+                    # Parse the counter from placeholder: [[TR_EMAIL_42]] → 42
+                    num = self._parse_counter(placeholder)
+                    if num > max_counter:
+                        max_counter = num
+            # Update counter to avoid collisions with restored entries
             if count > 0:
-                self._counter = max(self._counter, len(self._vault))
+                self._counter = max_counter
             return count
         finally:
             conn.close()
+
+    @staticmethod
+    def _parse_counter(placeholder: str) -> int:
+        """Extract the numeric counter from a placeholder string."""
+        if placeholder.startswith("[[TR_") and placeholder.endswith("]]"):
+            inner = placeholder[5:-2]
+            parts = inner.rsplit("_", 1)
+            if len(parts) == 2:
+                try:
+                    return int(parts[1])
+                except ValueError:
+                    pass
+        return 0
 
     def clear_task_vault(self, task_id: Optional[str] = None) -> None:
         """Remove vault entries for a specific task from the database.
