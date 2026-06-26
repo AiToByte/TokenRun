@@ -11,7 +11,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-3776AB?logo=python&logoColor=white)](https://python.org)
 [![Next.js 14](https://img.shields.io/badge/Next.js-14-000000?logo=next.js&logoColor=white)](https://nextjs.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![Tests](https://img.shields.io/badge/tests-362%20passed-4CAF50)](#testing)
+[![Tests](https://img.shields.io/badge/tests-484%20passed-4CAF50)](#testing)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 </div>
@@ -113,8 +113,13 @@ TokenRun/
 │   ├── task_queue.py            # priority queue (HIGH/NORMAL/LOW)
 │   ├── sampling_manager.py      # 1% sampling gate
 │   ├── telemetry.py             # event broadcasting
-│   ├── sandbox.py               # secure code execution
-│   ├── mcp_server.py            # MCP protocol server
+│   ├── sandbox.py               # secure code execution (AST)
+│   ├── eval_judge.py            # multi-dimensional quality evaluation
+│   ├── quality_gate.py          # sliding-window circuit breaker
+│   ├── resilience.py            # circuit breaker + bulkhead + retry
+│   ├── context_cache.py         # prompt cache optimization
+│   ├── jinja_env.py             # shared Jinja2 sandbox singleton
+│   ├── mcp_server.py            # MCP protocol server (FastMCP)
 │   └── app.py                   # main controller class
 ├── gateway/                     # I/O layer (9 modules)
 │   ├── provider.py              # LLM client (OpenAI-compatible)
@@ -133,7 +138,7 @@ TokenRun/
 │       ├── app/                 # Dashboard, Missions, Skills pages
 │       ├── components/          # ShadcnUI-style components
 │       └── lib/                 # API client + WebSocket hook
-├── tests/                       # 362 tests (pytest)
+├── tests/                       # 484 tests (pytest)
 ├── skills/library/              # Preset skill packages
 ├── docs/                        # Design documents (14 files)
 ├── runfiles/                    # User task blueprints
@@ -269,12 +274,15 @@ python -m pytest tests/test_runner.py::TestActorCriticLoop::test_first_attempt_p
 python -m pytest tests/ --cov=core --cov=gateway --cov=api
 ```
 
-**362 tests** across 25 test files covering:
+**484 tests** across 32 test files covering:
 - Unit tests (models, privacy, ledger, provider, solidifier, persistence)
 - Integration tests (E2E lifecycle, DAG execution, drift detection)
 - Edge cases (budget fuse, cyclic dependencies, empty inputs)
-- Security tests (PII protection, sandbox restrictions)
+- Security tests (PII protection, sandbox restrictions, AST bypass)
 - Performance tests (throughput benchmarks)
+- Concurrency tests (thread safety, async race conditions)
+- Resilience tests (circuit breaker, bulkhead, retry policy)
+- Quality evaluation tests (EvalJudge, multi-dimensional scoring)
 
 ## Tech Stack
 
@@ -290,6 +298,8 @@ python -m pytest tests/ --cov=core --cov=gateway --cov=api
 
 ## Contributing
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/amazing-feature`)
 3. Run tests (`python -m pytest tests/ -v`)
@@ -297,6 +307,15 @@ python -m pytest tests/ --cov=core --cov=gateway --cov=api
 5. Commit your changes (`git commit -m 'feat: add amazing feature'`)
 6. Push to the branch (`git push origin feature/amazing-feature`)
 7. Open a Pull Request
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [User Manual](docs/user-manual.md) | 快速上手指南、Runfile 编写、API 使用 |
+| [Architecture](docs/architecture.md) | 技术架构、数据流、并发模型 |
+| [Components](docs/components.md) | 模块详解、依赖关系、代码质量指标 |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | 开发环境、代码规范、提交规范 |
 
 ## License
 
