@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, WebSocket
+from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -26,13 +27,43 @@ app = FastAPI(
     description="Industrial-grade AI task execution engine — Cockpit API",
 )
 
+# CORS: restrict to localhost origins in production.
+# Override via TOKENRUN_CORS_ORIGINS env var (comma-separated).
+_cors_origins_str = os.environ.get(
+    "TOKENRUN_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"
+)
+_cors_origins = [o.strip() for o in _cors_origins_str.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Content-Type", "Authorization"],
 )
+
+# ---------------------------------------------------------------------------
+# API Key Authentication (optional, enabled via env var)
+# ---------------------------------------------------------------------------
+
+_API_KEY = os.environ.get("TOKENRUN_API_KEY", "")
+
+
+@app.middleware("http")
+async def _auth_middleware(request: Request, call_next: Any) -> Any:
+    """Check API key if TOKENRUN_API_KEY is set.
+
+    Skips auth for health endpoint and WebSocket (handled separately).
+    """
+    if _API_KEY and request.url.path not in ("/health", "/docs", "/openapi.json"):
+        # WebSocket auth is handled in the endpoint itself
+        if request.url.path == "/ws":
+            return await call_next(request)
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header != f"Bearer {_API_KEY}":
+            raise HTTPException(401, "Invalid or missing API key")
+    return await call_next(request)
+
 
 # ---------------------------------------------------------------------------
 # In-memory state (production would use Redis/DB)
@@ -123,7 +154,7 @@ async def create_mission(req: MissionCreate) -> MissionStatus:
     # Path traversal protection
     safe_path = Path(req.runfile_path).resolve()
     allowed_root = Path("runfiles").resolve()
-    if not str(safe_path).startswith(str(allowed_root)):
+    if not safe_path.is_relative_to(allowed_root):
         raise HTTPException(
             403, "Access denied: runfile must be in runfiles/ directory"
         )
@@ -287,12 +318,12 @@ async def run_skill(skill_id: str) -> MissionStatus:
     safe_id = Path(skill_id).name  # strip any directory components
     vault = Path("vault")
     skill_file = (vault / f"{safe_id}.trs").resolve()
-    if not str(skill_file).startswith(str(vault.resolve())):
+    if not skill_file.is_relative_to(vault.resolve()):
         raise HTTPException(403, "Access denied: invalid skill_id")
     if not skill_file.exists():
         lib = Path("skills/library")
         skill_file = (lib / f"{safe_id}.trs").resolve()
-        if not str(skill_file).startswith(str(lib.resolve())):
+        if not skill_file.is_relative_to(lib.resolve()):
             raise HTTPException(403, "Access denied: invalid skill_id")
     if not skill_file.exists():
         raise HTTPException(404, f"Skill not found: {safe_id}")

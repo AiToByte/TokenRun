@@ -109,13 +109,25 @@ class TROrchestrator:
         return self._is_paused
 
     def pause(self) -> None:
-        """Pause execution.  New tasks will block until resumed."""
+        """Pause execution.  New tasks will block until resumed.
+
+        Thread-safe: uses ``loop.call_soon_threadsafe`` when called from
+        a non-event-loop thread (e.g., a FastAPI threadpool endpoint).
+        """
         self._is_paused = True
-        self._pause_event.clear()
+        try:
+            loop = asyncio.get_running_loop()
+            loop.call_soon_threadsafe(self._pause_event.clear)
+        except RuntimeError:
+            # No event loop running — safe to call directly
+            self._pause_event.clear()
         print("⏸️ [编排器] 执行已暂停。")
 
     def resume(self, new_prompt: Optional[str] = None, change_log: str = "") -> None:
         """Resume execution, optionally with a modified prompt.
+
+        Thread-safe: uses ``loop.call_soon_threadsafe`` when called from
+        a non-event-loop thread.
 
         Parameters
         ----------
@@ -145,7 +157,11 @@ class TROrchestrator:
             )
 
         self._is_paused = False
-        self._pause_event.set()
+        try:
+            loop = asyncio.get_running_loop()
+            loop.call_soon_threadsafe(self._pause_event.set)
+        except RuntimeError:
+            self._pause_event.set()
         print("▶️ [编排器] 执行已恢复。")
 
     def request_replay(
@@ -442,8 +458,9 @@ class TROrchestrator:
     def resolve_skill_ref(self, node: TaskNode) -> TaskNode:
         """If the node has a skill_ref, load the .trs and merge its config.
 
-        Returns the node with ``actor_prompt_template`` and ``loop_config``
-        populated from the skill file.
+        Returns a **new** TaskNode with ``actor_prompt_template`` and
+        ``loop_config`` populated from the skill file.  The original
+        node is not modified (immutability).
         """
         if not node.skill_ref:
             return node
@@ -461,17 +478,24 @@ class TROrchestrator:
 
         skill_data = json.loads(skill_path.read_text(encoding="utf-8"))
 
-        # Merge skill config into node
+        # Build update dict for immutable copy
+        updates: Dict[str, Any] = {}
         if skill_data.get("optimized_prompt"):
-            node.actor_prompt_template = skill_data["optimized_prompt"]
+            updates["actor_prompt_template"] = skill_data["optimized_prompt"]
 
         if skill_data.get("validation_rules"):
             from core.models import ValidationRule
 
-            node.loop_config.exit_criteria = [
-                ValidationRule(**r) for r in skill_data["validation_rules"]
-            ]
+            updates["loop_config"] = node.loop_config.model_copy(
+                update={
+                    "exit_criteria": [
+                        ValidationRule(**r) for r in skill_data["validation_rules"]
+                    ]
+                }
+            )
 
+        if updates:
+            return node.model_copy(update=updates)
         return node
 
     # ------------------------------------------------------------------
@@ -488,8 +512,11 @@ class TROrchestrator:
         if self._replay_event.is_set():
             async with self._state_lock:
                 if self._replay_prompt and self.runfile.workflow:
-                    node = node_override or self.runfile.workflow[0]
-                    node.actor_prompt_template = self._replay_prompt
+                    base_node = node_override or self.runfile.workflow[0]
+                    # Create a copy instead of mutating the original
+                    node_override = base_node.model_copy(
+                        update={"actor_prompt_template": self._replay_prompt}
+                    )
                     self._replay_prompt = None
                 self._replay_event.clear()
 

@@ -81,3 +81,14 @@ class S3Gateway:
         """Read a single object by key."""
         resp = self._client.get_object(Bucket=self.bucket, Key=key)
         return resp["Body"].read().decode("utf-8")
+
+    def close(self) -> None:
+        """Close the underlying boto3 client."""
+        if self._client:
+            self._client.close()
+
+    def __enter__(self) -> "S3Gateway":
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        self.close()

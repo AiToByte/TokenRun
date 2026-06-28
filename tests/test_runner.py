@@ -297,7 +297,8 @@ class TestPersistenceIntegration:
         critic.provider.model_name = "test-critic"
 
         persistence = MagicMock(spec=TaskPersistence)
-        persistence.get_status = MagicMock(return_value=None)
+        persistence.async_get_status = AsyncMock(return_value=None)
+        persistence.async_save_trace = AsyncMock()
 
         engine = ActorCriticLoop(
             actor=actor, critic=critic, persistence=persistence
@@ -305,8 +306,8 @@ class TestPersistenceIntegration:
         node = _make_node(max_attempts=1)
         await engine.run(node, "data")
 
-        persistence.save_trace.assert_called_once()
-        call_kwargs = persistence.save_trace.call_args.kwargs
+        persistence.async_save_trace.assert_called_once()
+        call_kwargs = persistence.async_save_trace.call_args.kwargs
         assert call_kwargs["status"] == "completed"
 
     @pytest.mark.asyncio
@@ -320,7 +321,7 @@ class TestPersistenceIntegration:
         critic.provider = MagicMock()
 
         persistence = MagicMock(spec=TaskPersistence)
-        persistence.get_status = MagicMock(return_value="completed")
+        persistence.async_get_status = AsyncMock(return_value="completed")
 
         engine = ActorCriticLoop(
             actor=actor, critic=critic, persistence=persistence

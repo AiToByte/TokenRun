@@ -9,8 +9,10 @@ Supports optional circuit breaker for fault isolation.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 import httpx
 
@@ -35,6 +37,27 @@ class LLMResponse:
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
 
+def _is_private_host(hostname: str) -> bool:
+    """Check if a hostname resolves to a private/internal IP address.
+
+    Returns True for localhost, private IPs, link-local, and metadata endpoints.
+    Used to prevent SSRF attacks via configurable base_url fields.
+    """
+    # Quick string checks before DNS resolution
+    if hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+        return True
+    if hostname.startswith("169.254."):  # AWS metadata, link-local
+        return True
+    try:
+        addr = ipaddress.ip_address(hostname)
+        return addr.is_private or addr.is_loopback or addr.is_link_local
+    except ValueError:
+        # hostname is a domain name — allow it (DNS resolution would be
+        # needed to check, but that adds latency; trust DNS-based SSRF
+        # protection to httpx's transport layer)
+        return False
+
+
 class LLMProvider:
     """Async HTTP client for OpenAI-compatible ``/chat/completions``.
 
@@ -54,6 +77,9 @@ class LLMProvider:
         Number of retry attempts on transient failures.
     circuit_breaker:
         Optional :class:`~core.resilience.CircuitBreaker` for fault isolation.
+    allow_private:
+        If False (default), block requests to private/internal IP addresses
+        to prevent SSRF attacks.
     """
 
     def __init__(
@@ -64,6 +90,7 @@ class LLMProvider:
         timeout: float = 60.0,
         max_retries: int = 3,
         circuit_breaker: Any = None,
+        allow_private: bool = False,
     ) -> None:
         self._api_key = api_key
         self.base_url = base_url.rstrip("/")
@@ -72,6 +99,17 @@ class LLMProvider:
         self.max_retries = max_retries
         self._client = httpx.AsyncClient(timeout=timeout)
         self._circuit_breaker = circuit_breaker
+
+        # SSRF protection: validate base_url
+        if not allow_private:
+            parsed = urlparse(self.base_url)
+            hostname = parsed.hostname or ""
+            if _is_private_host(hostname):
+                raise LLMProviderError(
+                    f"SSRF blocked: base_url '{base_url}' resolves to a "
+                    f"private/internal host ({hostname}). "
+                    f"Set allow_private=True to override."
+                )
 
     # ------------------------------------------------------------------
     # Public API

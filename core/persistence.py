@@ -4,10 +4,14 @@ Task Persistence — SQLite-backed trace storage for checkpoint/resume.
 Every iteration of every data item is persisted atomically.  On restart
 the system can query which items have already been completed and skip
 them, preventing duplicate API calls (and duplicate cost).
+
+Async wrappers (``async_save_trace``, ``async_get_status``) offload
+SQLite I/O to a thread pool so the event loop is not blocked.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sqlite3
 import threading
@@ -168,3 +172,28 @@ class TaskPersistence:
                 )
                 """
             )
+
+    # ------------------------------------------------------------------
+    # Async wrappers — offload SQLite I/O to a thread pool
+    # ------------------------------------------------------------------
+
+    async def async_save_trace(
+        self,
+        unit_id: str,
+        input_hash: str,
+        status: str,
+        trace: Dict[str, Any],
+        output: str = "",
+    ) -> None:
+        """Async version of :meth:`save_trace` — non-blocking."""
+        await asyncio.to_thread(
+            self.save_trace, unit_id, input_hash, status, trace, output
+        )
+
+    async def async_get_status(self, unit_id: str) -> Optional[str]:
+        """Async version of :meth:`get_status` — non-blocking."""
+        return await asyncio.to_thread(self.get_status, unit_id)
+
+    async def async_get_pending_ids(self, all_ids: List[str]) -> List[str]:
+        """Async version of :meth:`get_pending_ids` — non-blocking."""
+        return await asyncio.to_thread(self.get_pending_ids, all_ids)

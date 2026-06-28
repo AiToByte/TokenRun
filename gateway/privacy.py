@@ -21,7 +21,7 @@ __all__ = ["PrivacyRedactor", "PersistentRedactor"]
 
 # Pre-compiled patterns for common PII categories.
 _DEFAULT_PATTERNS: Dict[str, re.Pattern] = {
-    "EMAIL": re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+"),
+    "EMAIL": re.compile(r"[a-zA-Z0-9_.+\-]+@[a-zA-Z0-9\-]+\.[a-zA-Z0-9.\-]+"),
     "PHONE": re.compile(r"(?:\+?86)?1[3-9]\d{9}"),
     "ID_CARD": re.compile(r"\b\d{17}[\dXx]\b"),
     "IP_ADDR": re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
@@ -175,7 +175,9 @@ class PersistentRedactor(PrivacyRedactor):
         super().__init__(patterns=patterns, rules=rules)
         self._db_path = db_path
         self._task_id = task_id
-        self._pending_entries: List[tuple[str, str, str]] = []  # (placeholder, value, label)
+        self._pending_entries: List[
+            tuple[str, str, str]
+        ] = []  # (placeholder, value, label)
         self._init_db()
 
     def _init_db(self) -> None:

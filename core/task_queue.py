@@ -75,11 +75,17 @@ class TaskQueue:
         self,
         max_concurrent: int = 5,
         batch_threshold: Priority = Priority.LOW,
+        max_queue_size: int = 0,
     ) -> None:
         self.max_concurrent = max_concurrent
         self.batch_threshold = batch_threshold
         self._semaphore = asyncio.Semaphore(max_concurrent)
-        self._queue: asyncio.PriorityQueue[_QueueItem] = asyncio.PriorityQueue()
+        # Bounded queue prevents unbounded memory growth.
+        # maxsize=0 means unlimited (legacy behavior); set a sane default.
+        effective_maxsize = max_queue_size or (max_concurrent * 10)
+        self._queue: asyncio.PriorityQueue[_QueueItem] = asyncio.PriorityQueue(
+            maxsize=effective_maxsize
+        )
         self._tasks: Dict[str, _QueueItem] = {}
         self._running = False
         self._worker_task: Optional[asyncio.Task] = None
@@ -130,10 +136,19 @@ class TaskQueue:
         if not item:
             raise KeyError(f"Task {task_id} not found")
 
-        await asyncio.wait_for(item._event.wait(), timeout)
+        try:
+            await asyncio.wait_for(item._event.wait(), timeout)
+        except asyncio.TimeoutError:
+            # Clean up on timeout
+            self._tasks.pop(task_id, None)
+            raise
 
         if item._exception:
+            # Clean up on error
+            self._tasks.pop(task_id, None)
             raise item._exception
+        # Clean up completed task to prevent unbounded growth
+        self._tasks.pop(task_id, None)
         return item._result
 
     def cancel(self, task_id: str) -> bool:

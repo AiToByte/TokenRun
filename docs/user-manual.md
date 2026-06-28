@@ -6,165 +6,199 @@
 
 ## 目录
 
-1. [快速上手](#快速上手)
-2. [核心概念](#核心概念)
-3. [Runfile 编写指南](#runfile-编写指南)
-4. [CLI 使用](#cli-使用)
-5. [API 使用](#api-使用)
-6. [前端 Cockpit](#前端-cockpit)
-7. [高级功能](#高级功能)
-8. [故障排除](#故障排除)
+1. [快速上手](#1-快速上手)
+2. [核心概念](#2-核心概念)
+3. [Runfile 编写指南](#3-runfile-编写指南)
+4. [CLI 使用](#4-cli-使用)
+5. [API 使用](#5-api-使用)
+6. [前端 Cockpit](#6-前端-cockpit)
+7. [高级功能](#7-高级功能)
+8. [故障排除](#8-故障排除)
 
 ---
 
-## 快速上手
+## 1. 快速上手
 
-### 环境要求
-
-- Python 3.10+
-- Node.js 18+（前端可选）
-- OpenAI 兼容 API Key
-
-### 安装
+### 1.1 安装
 
 ```bash
+# 克隆仓库
 git clone https://github.com/AiToByte/TokenRun.git
 cd TokenRun
+
+# 安装后端
 pip install -e ".[dev]"
+
+# 安装前端 (可选)
+cd web && npm install && cd ..
 ```
 
-### 配置
+### 1.2 配置
 
 ```bash
+# 复制环境变量模板
 cp .env.example .env
-# 编辑 .env，填入你的 API Key：
-# OPENAI_API_KEY=sk-your-key-here
+
+# 编辑 .env，填入 API Key
+# 最简配置: 只需设置 OPENAI_API_KEY
 ```
 
-### 5 分钟体验
+**.env 示例:**
+```bash
+# 方式1: 共享 Key (Actor 和 Critic 使用同一个)
+OPENAI_API_KEY=sk-your-key-here
+
+# 方式2: 分别配置
+ACTOR_API_KEY=sk-actor-key
+ACTOR_MODEL=gpt-4o
+CRITIC_API_KEY=sk-critic-key
+CRITIC_MODEL=gpt-4o-mini
+
+# 方式3: 使用国内提供商
+ACTOR_BASE_URL=https://api.deepseek.com/v1
+ACTOR_API_KEY=sk-deepseek-key
+ACTOR_MODEL=deepseek-chat
+```
+
+### 1.3 运行
 
 ```bash
-# 运行默认测试任务
+# CLI 模式 (默认测试任务)
 python main.py
 
-# 仅运行采样阶段（验证质量）
+# CLI 模式 (自定义 Runfile)
+python main.py runfiles/custom.yaml
+
+# CLI 模式 (仅采样)
 python main.py --sample-only
 
-# 使用自定义 Runfile
-python main.py runfiles/custom.yaml
+# API 模式
+uvicorn api.main:app --reload
+
+# 前端
+cd web && npm run dev
+
+# Docker 全栈
+docker-compose up
+```
+
+### 1.4 运行测试
+
+```bash
+# 全部测试
+python -m pytest tests/ -v
+
+# 单个测试
+python -m pytest tests/test_runner.py::TestActorCriticLoop::test_first_attempt_passes -v
+
+# 带覆盖率
+python -m pytest tests/ --cov=core --cov=gateway --cov=api
+
+# Lint
+ruff check core/ gateway/ api/ main.py
+ruff format core/ gateway/ api/ main.py
 ```
 
 ---
 
-## 核心概念
+## 2. 核心概念
 
-### 循环工程 (Loop Engineering)
+### 2.1 Loop Engineering (循环工程)
 
-TokenRun 的核心机制 — Actor-Critic 反馈循环：
+传统 AI 调用: 输入 → LLM → 输出 (一次性，不可靠)
 
+TokenRun 循环工程:
 ```
-输入 → 隐私脱敏 → Actor（贵模型生成）
-                        ↓
-                  Critic（便宜模型审计）
-                        ↓
-               ┌── 通过 → 最终输出
-               └── 失败 → 反馈注入 → Actor 重试
+输入 → Actor(昂贵模型) → 输出
+         ↑                    │
+         │                    ▼
+         │              Critic(廉价模型) → 评估
+         │                    │
+         │                    ├── 通过 → 最终输出
+         │                    │
+         └────────────────────┘ 不通过 → 反馈注入 → 重试
 ```
 
-**三种策略**：
-- `feedback-driven`：带反馈重试，直到通过或达到最大次数
-- `exhaustive`：运行所有尝试，选择最高分结果
-- `once`：单次执行，不重试
+**三种策略:**
 
-### Runfile（任务蓝图）
+| 策略 | 行为 | 适用场景 |
+|------|------|----------|
+| `feedback-driven` | 失败时注入反馈重试，通过即停止 | 通用场景 |
+| `exhaustive` | 运行所有尝试，返回最高分 | 质量要求极高 |
+| `once` | 单次尝试 | 简单任务 |
 
-YAML 格式的声明式任务定义，描述：
-- **做什么**（workflow 节点）
-- **怎么做**（loop_config 策略）
-- **用什么数据**（context 资源）
-- **什么约束**（security、governance）
+### 2.2 Runfile (任务蓝图)
 
-### Token 账本 (Ledger)
+Runfile 是 YAML 格式的声明式任务定义，描述:
+- **做什么** (workflow)
+- **怎么做** (loop_config)
+- **用什么数据** (context)
+- **在什么约束下** (security, sampling, governance)
 
-实时追踪每次 LLM 调用的成本，支持：
-- 预算上限自动熔断
-- ROI 实时计算
-- Actor/Critic 分别计费
+### 2.3 Token Ledger (预算熔断)
 
-### 指纹锁定 (Fingerprint)
+每次 LLM 调用都经过 Ledger 记账:
+- 记录 prompt_tokens 和 completion_tokens
+- 实时计算 USD 成本
+- 预算超限 → 立即熔断 (停止所有任务)
 
-锁定 `model_id + prompt_hash + temperature + seed`，防止云端模型静默漂移。
+### 2.4 Fingerprint Locking (指纹锁定)
+
+采样成功后锁定执行环境:
+- model_id + prompt_hash + temperature + seed
+- 后续执行前验证指纹一致性
+- 检测到变化 → 要求重新采样
+
+### 2.5 Sampling Gate (采样门)
+
+全量执行前的小规模测试:
+- 默认取 1% 数据
+- 生成采样报告 (成功率、平均质量、预估总成本)
+- 人工审批后才开始全量执行
 
 ---
 
-## Runfile 编写指南
+## 3. Runfile 编写指南
 
-### 基础结构
+### 3.1 基本结构
 
 ```yaml
-name: "我的任务"
 version: "1.0"
+name: "My_Task"
 
 workflow:
-  - id: "task-1"
-    name: "任务名称"
+  - id: "processor"
+    name: "数据处理"
     actor_prompt_template: |
-      你的 Prompt 模板，使用 {{ data }} 引用输入数据。
+      请处理以下数据。
+      输出 JSON: {"result": "..."}
+
+      数据: {{ data }}
     loop_config:
       strategy: "feedback-driven"
-      max_attempts: 5
-      min_score: 0.8
+      max_attempts: 3
       exit_criteria:
         - type: "json_schema"
-          criteria:
-            required: ["field1", "field2"]
+          criteria: {"required": ["result"]}
+
+governance:
+  max_usd: 5.0
 ```
 
-### 完整示例
+### 3.2 完整示例
 
 ```yaml
+version: "1.0"
 name: "Finance_Refinery"
-version: "1.0"
+metadata:
+  description: "财务交易分类"
+  author: "xiao"
 
-# 工作流节点（支持 DAG 依赖）
-workflow:
-  - id: "classifier"
-    name: "交易分类"
-    actor_prompt_template: |
-      将以下交易分类到对应类别。
-      输出 JSON: {"category": "...", "confidence": 0.0-1.0}
-
-      交易: {{ data }}
-
-    # 动态模型路由：失败后自动升级模型
-    model_tiers:
-      - { model: "gpt-4o-mini", escalate_after: 2 }
-      - { model: "gpt-4o", escalate_after: 3 }
-
-    loop_config:
-      strategy: "feedback-driven"
-      max_attempts: 5
-      min_score: 0.85
-      retry_delay: 1
-
-      # 多维度评分权重
-      score_weights:
-        accuracy: 2.0
-        format: 1.0
-
-      # 验证规则（程序化 + LLM）
-      exit_criteria:
-        - type: "json_schema"
-          criteria:
-            required: ["category", "confidence"]
-        - type: "regex"
-          criteria: '"category"\s*:\s*"[^"]+"'
-        - type: "llm_eval"
-          criteria: "分类必须符合会计逻辑"
-
-      # 共识审计（多模型投票）
-      consensus_models: ["gpt-4o", "gpt-4o-mini"]
-      consensus_threshold: 0.6
+# 数据源
+context:
+  - id: "transactions"
+    uri: "local://data/finance"
+    type: "local_file"
 
 # 安全配置
 security:
@@ -175,242 +209,386 @@ security:
 sampling:
   enabled: true
   mode: "percentage"
-  value: 0.01
-  auto_pause: true
+  value: 0.01          # 1%
+  auto_pause: true     # 采样后暂停等待审批
 
-# 治理约束
+# 工作流
+workflow:
+  - id: "classifier"
+    name: "交易分类"
+    actor_prompt_template: |
+      请将以下交易分类。
+      输出 JSON: {"category": "...", "confidence": 0.0-1.0}
+
+      {% if feedback %}
+      上次输出有问题，请根据以下反馈改进:
+      {{ feedback }}
+      {% endif %}
+
+      交易: {{ data }}
+
+    # 动态模型路由
+    model_tiers:
+      - {model: "gpt-4o-mini", escalate_after: 2}
+      - {model: "gpt-4o", escalate_after: 3}
+
+    # 循环配置
+    loop_config:
+      strategy: "feedback-driven"
+      max_attempts: 5
+      min_score: 0.85
+      retry_delay: 1
+      score_weights:
+        accuracy: 2.0
+        format: 1.0
+      exit_criteria:
+        - type: "json_schema"
+          criteria: {"required": ["category", "confidence"]}
+        - type: "llm_eval"
+          criteria: "分类必须符合会计逻辑"
+
+    # 共识验证 (可选)
+    loop_config:
+      consensus_models: ["gpt-4o", "deepseek-chat"]
+      consensus_threshold: 0.5
+
+# 预算约束
 governance:
-  max_usd: 5.0
+  max_usd: 10.0
   max_loop_count: 10000
 
-# 输出持久化（可选）
+# 输出持久化 (可选)
 output_sink:
   type: "file"
   output_dir: "output"
   suffix: ".jsonl"
 ```
 
-### 验证规则类型
+### 3.3 验证规则类型
 
-| 类型 | 说明 | 示例 |
-|------|------|------|
-| `regex` | 正则表达式匹配 | `'"category"\s*:\s*"[^"]+"'` |
-| `json_schema` | JSON 结构校验 | `{"required": ["field1"]}` |
-| `code_eval` | Python 代码执行 | `assert "category" in json.loads(output)` |
-| `llm_eval` | LLM 自然语言评估 | `"输出必须符合会计逻辑"` |
+| 类型 | 成本 | 说明 | 示例 |
+|------|------|------|------|
+| `regex` | 免费 | 正则表达式匹配 | `criteria: "\\d+"` |
+| `json_schema` | 免费 | JSON 结构校验 | `criteria: {"required": ["name"]}` |
+| `code_eval` | 免费 | Python 代码测试 | `criteria: "assert len(output) > 10"` |
+| `llm_eval` | 收费 | LLM 语义评估 | `criteria: "输出必须准确"` |
 
-### DAG 依赖
+### 3.4 DAG 依赖
 
 ```yaml
 workflow:
-  - id: "step1"
-    name: "第一步"
+  - id: "classifier"
+    name: "分类"
+    depends_on: []
     actor_prompt_template: "..."
 
-  - id: "step2"
-    name: "第二步"
-    depends_on: ["step1"]  # 依赖 step1 的输出
+  - id: "summarizer"
+    name: "摘要"
+    depends_on: ["classifier"]
     actor_prompt_template: |
-      基于以下分析结果继续处理: {{ data }}
+      请根据分类结果生成摘要。
+      分类: {{ data }}
+
+  - id: "validator"
+    name: "验证"
+    depends_on: ["summarizer"]
+    actor_prompt_template: |
+      请验证摘要质量。
+      摘要: {{ data }}
 ```
 
 ---
 
-## CLI 使用
+## 4. CLI 使用
+
+### 4.1 基本命令
 
 ```bash
-# 默认测试任务
+# 使用默认测试任务
 python main.py
 
-# 自定义 Runfile
-python main.py path/to/runfile.yaml
+# 使用自定义 Runfile
+python main.py runfiles/my_task.yaml
 
-# 仅采样（验证质量）
+# 仅执行采样阶段
 python main.py --sample-only
+```
 
-# 指定环境变量
-OPENAI_API_KEY=sk-xxx python main.py runfile.yaml
+### 4.2 输出示例
+
+```
+============================================================
+  TokenRun — 工业级 AI 任务执行引擎
+============================================================
+
+📋 蓝图: Finance_Refinery (v1.0)
+   工作流节点: 1
+   预算上限: $10.00
+   数据量: 100 条
+
+────────────────────────────────────────────────────────
+🔬 [采样阶段] 开始处理 1 个样本...
+  样本 1: success
+    预览: {"category": "金融", "confidence": 0.95}...
+
+🔒 指纹已锁定: model=gpt-4o, prompt_hash=a1b2c3d4
+   样本快照: e5f6g7h8
+
+⏸️ 采样报告:
+   成功率: 1/1
+   平均质量: 0.92
+   采样成本: $0.0023
+   预估总成本: $0.23
+   预估成功数: 92
+   等待审批... (按 Enter 继续全量执行)
+
+────────────────────────────────────────────────────────
+🏭 [生产阶段] 开始全量处理 100 条数据...
+  📦 节点 [交易分类] 处理 100 条数据...
+
+✅ 完成！成功: 92/100
+  账本: Actor: 15000 tokens ($0.075) | Critic: 5000 tokens ($0.005) | Total: $0.08
+
+📦 技能已固化: vault/TR-SKILL-a1b2c3d4e5f6.trs
+
+📊 [自动蒸馏] 成功率 92% > 90%，已导出训练数据: output/fine_tune.jsonl
+
+🧹 隐私映射表已清空。任务结束。
 ```
 
 ---
 
-## API 使用
+## 5. API 使用
 
-### 启动服务
+### 5.1 启动 API 服务
 
 ```bash
 uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 核心端点
+### 5.2 核心端点
 
-| 方法 | 路径 | 说明 |
+| 端点 | 方法 | 说明 |
 |------|------|------|
-| `GET` | `/health` | 健康检查 |
-| `POST` | `/missions` | 创建任务 |
-| `GET` | `/missions` | 列出所有任务 |
-| `GET` | `/missions/{id}` | 查询任务状态 |
-| `POST` | `/missions/{id}/approve` | 审批/中止任务 |
-| `POST` | `/missions/{id}/replay` | 重放（支持时间线回滚） |
-| `GET` | `/missions/{id}/traces` | 获取执行轨迹 |
-| `GET` | `/skills` | 列出已固化技能 |
-| `POST` | `/skills/{id}/run` | 运行技能 |
-| `WS` | `/ws` | WebSocket 实时事件流 |
+| `/health` | GET | 健康检查 |
+| `/missions` | POST | 创建任务 |
+| `/missions` | GET | 列出所有任务 |
+| `/missions/{id}` | GET | 获取单个任务 |
+| `/missions/{id}/approve` | POST | 审批任务 |
+| `/missions/{id}/revise` | POST | 修改 Prompt |
+| `/missions/{id}/traces` | GET | 获取执行 Trace |
+| `/missions/{id}/lineage` | GET | Prompt 版本谱系 |
+| `/missions/{id}/replay` | POST | 时间线回滚 |
+| `/missions/{id}/export` | POST | 导出 Fine-tune 数据 |
+| `/skills` | GET | 列出技能 |
+| `/skills/{id}/run` | POST | 运行技能 |
+| `/missions/{id}/events` | GET | SSE 实时事件 |
+| `/ws` | WebSocket | 实时事件流 |
 
-### 创建任务
+### 5.3 创建任务
 
 ```bash
 curl -X POST http://localhost:8000/missions \
   -H "Content-Type: application/json" \
-  -d '{"runfile_path": "runfiles/test_mission.yaml"}'
+  -d '{
+    "runfile_path": "runfiles/test_mission.yaml",
+    "sample_only": false,
+    "priority": "normal"
+  }'
 ```
 
-### WebSocket 订阅
+### 5.4 审批任务
+
+```bash
+# 批准
+curl -X POST http://localhost:8000/missions/mission-abc123/approve \
+  -H "Content-Type: application/json" \
+  -d '{"action": "approve"}'
+
+# 修改 Prompt 后批准
+curl -X POST http://localhost:8000/missions/mission-abc123/approve \
+  -H "Content-Type: application/json" \
+  -d '{"action": "approve", "new_prompt": "改进后的 Prompt..."}'
+
+# 中止
+curl -X POST http://localhost:8000/missions/mission-abc123/approve \
+  -H "Content-Type: application/json" \
+  -d '{"action": "abort"}'
+```
+
+### 5.5 WebSocket 订阅
 
 ```javascript
 const ws = new WebSocket('ws://localhost:8000/ws');
-ws.send(JSON.stringify({
-  action: 'subscribe',
-  mission_id: 'your-mission-id',
-  level: 2  // 1=进度, 2=节点, 3=完整轨迹
-}));
-ws.onmessage = (event) => console.log(JSON.parse(event.data));
+
+ws.onopen = () => {
+  ws.send(JSON.stringify({
+    action: 'subscribe',
+    mission_id: 'mission-abc123',
+    level: 2  // 1=进度, 2=详情, 3=完整trace
+  }));
+};
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  console.log(data.type, data);
+};
 ```
 
-### 重放与时间线回滚
+### 5.6 API 认证
 
 ```bash
-# 普通重放（带新 Prompt 继续跑）
-curl -X POST "http://localhost:8000/missions/{id}/replay?new_prompt=改进后的Prompt"
+# 设置 API Key
+export TOKENRUN_API_KEY="my-secret-key"
 
-# 时间线回滚（重置已完成任务，重新执行）
-curl -X POST "http://localhost:8000/missions/{id}/replay?rollback=true&new_prompt=新Prompt"
+# 带认证的请求
+curl -H "Authorization: Bearer my-secret-key" \
+  http://localhost:8000/missions
 ```
 
 ---
 
-## 前端 Cockpit
+## 6. 前端 Cockpit
 
-启动前端：
+### 6.1 页面结构
 
-```bash
-cd web && npm install && npm run dev
-# 访问 http://localhost:3000
-```
+**Dashboard (`/`):**
+- 实时 ROI 图表 (双轴: 成本 + 处理量)
+- 统计卡片 (处理量、成功率、总成本、单条成本)
+- 近期任务列表
+- 已固化技能网格
 
-### 页面功能
+**Missions (`/missions`):**
+- 任务创建表单
+- 采样决策面板 (3 栏: Runfile 逻辑 + 样本结果 + 经济分析)
+- 任务列表 (审批/中止按钮)
+- 时间旅行调试 (滑块查看任意迭代)
+- Prompt 编辑器 + 版本树可视化
 
-| 页面 | 功能 |
-|------|------|
-| **Dashboard** | 实时 ROI 价值曲线、任务概览 |
-| **Missions** | 任务创建、审批、版本进化树、时间旅行调试 |
-| **Skills** | 已固化技能列表、一键运行 |
+**Skills (`/skills`):**
+- 技能列表
+- 一键重跑按钮
+
+### 6.2 实时更新
+
+前端通过 WebSocket 接收实时事件:
+- 进度条更新
+- 成本实时计算
+- 质量告警通知
+- 漂移检测告警
 
 ---
 
-## 高级功能
+## 7. 高级功能
 
-### 本地模型审计（Ollama）
+### 7.1 Ollama 本地模型审计
 
 ```yaml
-loop_config:
-  critic_model: "ollama/llama3"  # 零成本本地审计
-  # critic_base_url: "http://localhost:11434/v1"  # 自定义地址
+workflow:
+  - id: "processor"
+    loop_config:
+      critic_model: "ollama/llama3"
+      critic_base_url: "http://localhost:11434/v1"  # 可选
 ```
 
-### 多维度评估 (EvalJudge)
+### 7.2 多维评估 (EvalJudge)
 
 ```python
-from core.eval_judge import EvalJudge, EvalDimension, safety_evaluator, completeness_evaluator
+from core.eval_judge import (
+    EvalJudge, EvalDimension,
+    safety_evaluator, completeness_evaluator, code_quality_evaluator
+)
 
 judge = EvalJudge(
     dimensions=[
-        EvalDimension("safety", weight=0.4, evaluator=safety_evaluator),
-        EvalDimension("completeness", weight=0.6, evaluator=completeness_evaluator),
+        EvalDimension(name="safety", weight=2.0, evaluator=safety_evaluator),
+        EvalDimension(name="completeness", weight=1.0, evaluator=completeness_evaluator),
+        EvalDimension(name="code_quality", weight=1.0, evaluator=code_quality_evaluator),
     ],
     threshold=0.7,
 )
 
-# 注入到 runner
-runner = ActorCriticLoop(actor=actor, critic=critic, eval_judge=judge)
+# 在 runner 中使用
+engine = ActorCriticLoop(actor=actor, critic=critic, eval_judge=judge)
 ```
 
-### 输出持久化
+### 7.3 输出持久化
 
 ```yaml
-# 文件输出
 output_sink:
-  type: "file"
+  type: "file"        # file | duckdb | vector
   output_dir: "output"
-
-# DuckDB 结构化存储
-output_sink:
-  type: "duckdb"
-  db_path: "results.db"
-  table_name: "my_results"
-
-# 向量数据库（Chroma）
-output_sink:
-  type: "vector"
-  collection_name: "my_collection"
-  backend: "chroma"
+  suffix: ".jsonl"
 ```
 
-### 技能固化
-
-任务完成后，最优 Prompt 和黄金样本自动打包为 `.trs` 文件：
-
-```python
-from core.solidifier import SkillSolidifier
-
-solidifier = SkillSolidifier(vault_path="vault")
-skill_id = solidifier.distill(
-    task_name="classifier",
-    traces=traces,
-    prompt_template=prompt_template,
-)
-```
-
-### MCP 服务器
-
-将技能暴露为 MCP 工具：
+### 7.4 技能固化与复用
 
 ```bash
-python -m core.mcp_server
+# 固化 (自动在任务完成后执行)
+# 结果: vault/TR-SKILL-a1b2c3d4e5f6.trs
+
+# 复用 (API)
+curl -X POST http://localhost:8000/skills/TR-SKILL-a1b2c3d4e5f6/run
+
+# 复用 (CLI)
+python main.py --skill TR-SKILL-a1b2c3d4e5f6
 ```
 
-在 Claude Desktop 中配置后，可直接调用已固化技能。
+### 7.5 MCP 集成
+
+在 Claude Desktop 中使用 TokenRun 技能:
+
+```json
+{
+  "mcpServers": {
+    "tokenrun": {
+      "command": "python",
+      "args": ["-m", "core.mcp_server"],
+      "env": {
+        "TOKENRUN_VAULT_PATH": "/path/to/vault"
+      }
+    }
+  }
+}
+```
+
+### 7.6 时间线回滚
+
+```bash
+# 回滚到第 3 次迭代，使用新 Prompt 重放
+curl -X POST http://localhost:8000/missions/mission-abc/replay \
+  -H "Content-Type: application/json" \
+  -d '{
+    "iteration": 3,
+    "new_prompt": "改进后的 Prompt...",
+    "rollback": true
+  }'
+```
+
+### 7.7 Fine-tune 数据导出
+
+```bash
+# 导出为 OpenAI 格式
+curl -X POST http://localhost:8000/missions/mission-abc/export \
+  -H "Content-Type: application/json" \
+  -d '{"format": "openai", "min_score": 0.8}'
+
+# 支持格式: openai, alpaca, sharegpt
+```
 
 ---
 
-## 故障排除
-
-### 常见问题
+## 8. 故障排除
 
 | 问题 | 原因 | 解决方案 |
-|------|------|---------|
-| `BudgetExceededError` | 预算耗尽 | 增加 `governance.max_usd` 或检查成本 |
-| 质量熔断触发 | 连续低分 | 检查 Prompt 质量或降低 `quality_threshold` |
-| 指纹校验失败 | 配置变更 | 重新采样确认质量 |
-| 漂移检测告警 | 模型输出变化 | 检查 `drift_action` 配置 |
-| 沙箱执行超时 | 代码死循环 | 检查 `code_eval` 规则 |
-
-### 日志查看
-
-```bash
-# API 日志
-uvicorn api.main:app --log-level debug
-
-# 测试详细输出
-python -m pytest tests/ -v --tb=long
-```
-
-### 重置任务状态
-
-```python
-from core.persistence import TaskPersistence
-
-persistence = TaskPersistence()
-persistence.reset_to_pending("task-id")  # 重置单个
-persistence.reset_multiple(["id1", "id2"])  # 批量重置
-```
+|------|------|----------|
+| `未配置 API Key` | .env 未设置 | 设置 `OPENAI_API_KEY` |
+| `预算已耗尽` | Ledger 熔断 | 增加 `governance.max_usd` |
+| `指纹校验失败` | Prompt 被修改 | 重新采样确认质量 |
+| `循环依赖` | DAG 配置错误 | 检查 `depends_on` |
+| `路径遍历检测` | Runfile 路径不在 runfiles/ | 使用相对路径 |
+| `SSRF blocked` | base_url 指向内网 | 使用公网地址 |
+| `code_eval 超时` | 测试代码执行过慢 | 增加 sandbox timeout |
+| `质量熔断` | 连续低分 | 检查 Prompt 或降低阈值 |
+| `漂移检测告警` | 输出一致性下降 | 重新采样确认 |
+| `前端无法连接` | CORS 或 API 未启动 | 检查 backend 状态 |

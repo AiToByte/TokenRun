@@ -87,3 +87,14 @@ class SQLGateway:
             "table": table_name,
             "columns": [{"name": c["name"], "type": str(c["type"])} for c in columns],
         }
+
+    def close(self) -> None:
+        """Dispose of the connection pool."""
+        if self._engine:
+            self._engine.dispose()
+
+    def __enter__(self) -> "SQLGateway":
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        self.close()

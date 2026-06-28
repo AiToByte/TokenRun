@@ -93,7 +93,7 @@ class FileGateway:
         root = Path(output_dir) if output_dir else self.base_path
         out = (root / f"{relative_path}{suffix}").resolve()
         root_resolved = root.resolve()
-        if not str(out).startswith(str(root_resolved)):
+        if not out.is_relative_to(root_resolved):
             raise ValueError(f"Path traversal detected: {relative_path}")
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(content, encoding="utf-8")

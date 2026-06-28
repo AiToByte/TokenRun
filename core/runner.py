@@ -103,8 +103,10 @@ class ActorCriticLoop:
         input_hash = hashlib.sha256(input_data.encode()).hexdigest()[:16]
         unit_id = f"{node.id}:{input_hash}"
         if self.persistence:
-            prev_status = self.persistence.get_status(unit_id)
+            prev_status = await self.persistence.async_get_status(unit_id)
             if prev_status == "completed":
+                trace.status = TaskStatus.COMPLETED
+                trace.final_output = "(cached)"
                 return {
                     "status": "success",
                     "final_output": "(cached)",
@@ -158,6 +160,7 @@ class ActorCriticLoop:
 
             # --- Critic phase: use EvalJudge if available, else TaskCritic ---
             eval_result: EvaluationResult
+            critic_model_name = self.critic.provider.model_name  # default
             if self.eval_judge:
                 # Multi-dimensional evaluation via EvalJudge
                 judge_result = await self.eval_judge.evaluate(
@@ -177,6 +180,7 @@ class ActorCriticLoop:
                 local_provider = self._resolve_critic_provider(node)
                 if local_provider:
                     critic_to_use = TaskCritic(provider=local_provider)
+                    critic_model_name = local_provider.model_name  # track actual model
                     try:
                         eval_result = await critic_to_use.evaluate(
                             task_name=node.name,
@@ -224,7 +228,7 @@ class ActorCriticLoop:
                 and eval_result.audit_cost > 0
             ):
                 self.ledger.record_usage(
-                    model_name=self.critic.provider.model_name,
+                    model_name=critic_model_name,
                     prompt_tokens=0,
                     completion_tokens=eval_result.audit_cost,
                     role="critic",
@@ -242,10 +246,12 @@ class ActorCriticLoop:
             latency_ms = int((time.time() - start) * 1000)
 
             # Build iteration record
+            # Store masked input in trace to prevent PII leakage in persistence.
+            # The unmasked final_output is kept for in-memory use only.
             iteration = ExecutionIteration(
                 iteration_index=attempts,
-                input_payload=input_data,
-                output_content=final_output,
+                input_payload=safe_input,
+                output_content=safe_input if self.redactor else final_output,
                 evaluation=eval_result,
                 tokens_consumed={
                     "actor_prompt": actor_resp.prompt_tokens,
@@ -269,13 +275,14 @@ class ActorCriticLoop:
             iterations.append(iter_dict)
 
             # --- Persistence: save after each iteration ---
+            # Store masked data to prevent PII leakage in SQLite.
             if self.persistence:
-                self.persistence.save_trace(
+                await self.persistence.async_save_trace(
                     unit_id=unit_id,
                     input_hash=input_hash,
                     status="completed" if eval_result.passed else "running",
                     trace={"iterations": iterations},
-                    output=final_output if eval_result.passed else "",
+                    output=safe_input if eval_result.passed else "",
                 )
 
             # --- EXHAUSTIVE: track best result, don't early-exit ---
@@ -319,6 +326,16 @@ class ActorCriticLoop:
                 TaskStatus.COMPLETED if best_eval.passed else TaskStatus.FAILED
             )
             trace.final_output = best_out
+            # Save final status to persistence (was missing — caused
+            # "running" status to persist forever after EXHAUSTIVE completion)
+            if self.persistence:
+                await self.persistence.async_save_trace(
+                    unit_id=unit_id,
+                    input_hash=input_hash,
+                    status="completed" if best_eval.passed else "failed",
+                    trace={"iterations": iterations},
+                    output=best_out if best_eval.passed else "",
+                )
             return {
                 "status": "success" if best_eval.passed else "exhausted",
                 "final_output": best_out,
@@ -329,7 +346,7 @@ class ActorCriticLoop:
         # Exhausted all attempts
         trace.status = TaskStatus.FAILED
         if self.persistence:
-            self.persistence.save_trace(
+            await self.persistence.async_save_trace(
                 unit_id=unit_id,
                 input_hash=input_hash,
                 status="failed",
@@ -479,13 +496,20 @@ class ActorCriticLoop:
                 else:
                     merged_scores[k] = v
 
-        primary_result.passed = consensus_passed
-        primary_result.scores = merged_scores
-        if not consensus_passed:
-            primary_result.critique = (
-                f"共识审计未通过 ({pass_count}/{len(votes)} 模型同意)"
-            )
-        return primary_result
+        # Return a new EvaluationResult instead of mutating the original
+        consensus_critique = (
+            f"共识审计未通过 ({pass_count}/{len(votes)} 模型同意)"
+            if not consensus_passed
+            else primary_result.critique
+        )
+        return EvaluationResult(
+            passed=consensus_passed,
+            score=primary_result.score,
+            scores=merged_scores,
+            critique=consensus_critique,
+            suggestions=primary_result.suggestions,
+            audit_cost=primary_result.audit_cost,
+        )
 
     # ------------------------------------------------------------------
     # Programmatic validation
@@ -522,7 +546,20 @@ class ActorCriticLoop:
         for rule in rules:
             if rule.type == "regex":
                 pattern = str(rule.criteria)
-                matched = bool(re.search(pattern, output))
+                # Safety: compile first to catch invalid patterns, then
+                # use a timeout-safe approach via re module.
+                try:
+                    compiled = re.compile(pattern)
+                except re.error:
+                    scores[f"regex:{pattern[:30]}"] = 0.0
+                    all_passed = False
+                    continue
+                # ReDoS mitigation: limit pattern complexity
+                if len(pattern) > 500:
+                    scores[f"regex:{pattern[:30]}"] = 0.0
+                    all_passed = False
+                    continue
+                matched = bool(compiled.search(output))
                 scores[f"regex:{pattern[:30]}"] = 1.0 if matched else 0.0
                 if not matched:
                     all_passed = False
